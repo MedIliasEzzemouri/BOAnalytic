@@ -374,6 +374,23 @@ def traiter_bulletin(bulletin_id: int, db: Session):
         bulletin.statut = "en_cours"
         db.commit()
 
+        # Purge des résultats d'un traitement précédent (cas retraitement) :
+        # sans ça, chaque retraitement DUPLIQUE articles et alertes.
+        # Les alertes liées partent via ON DELETE CASCADE.
+        nb_purges = (
+            db.query(ArticleEntreprise)
+            .filter(ArticleEntreprise.bulletin_id == bulletin_id)
+            .delete(synchronize_session=False)
+        )
+        nb_purges += (
+            db.query(ArticleMahakim)
+            .filter(ArticleMahakim.bulletin_id == bulletin_id)
+            .delete(synchronize_session=False)
+        )
+        db.commit()
+        if nb_purges:
+            log.info("Retraitement : %d articles du traitement précédent purgés", nb_purges)
+
         # Reset l'état de traduction (cache + circuit breaker) entre bulletins
         reset_translator_state()
 

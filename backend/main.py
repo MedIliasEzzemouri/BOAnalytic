@@ -55,6 +55,38 @@ def _acquerir_verrou_scheduler() -> bool:
         return False
 
 
+def _recuperer_bulletins_bloques():
+    """
+    Un redémarrage du serveur pendant un traitement laisse le bulletin
+    bloqué en statut 'en_cours' pour toujours (le BackgroundTask meurt
+    avec le process). Au démarrage, on les bascule en 'erreur' avec un
+    message clair — l'admin peut relancer le retraitement.
+    """
+    from database import SessionLocal
+    from models import BulletinOfficiel
+    db = SessionLocal()
+    try:
+        bloques = (
+            db.query(BulletinOfficiel)
+            .filter(BulletinOfficiel.statut == "en_cours")
+            .all()
+        )
+        for b in bloques:
+            b.statut = "erreur"
+            b.message_erreur = (
+                "Traitement interrompu par un redémarrage du serveur. "
+                "Relance le retraitement."
+            )
+        if bloques:
+            db.commit()
+            log.warning("%d bulletin(s) 'en_cours' récupéré(s) après redémarrage", len(bloques))
+    except Exception:
+        log.exception("Récupération des bulletins bloqués impossible")
+        db.rollback()
+    finally:
+        db.close()
+
+
 def _demarrer_scheduler_scraping(app: FastAPI):
     """
     Démarre APScheduler en BackgroundScheduler (non bloquant pour FastAPI).
@@ -101,6 +133,7 @@ async def lifespan(app: FastAPI):
     log.info("LegalEye API — Démarrage")
     log.info("=" * 50)
     charger_modeles()
+    _recuperer_bulletins_bloques()
 
     if os.environ.get("SCRAPER_ENABLED", "false").lower() == "true":
         if _acquerir_verrou_scheduler():
