@@ -23,8 +23,6 @@ function initials(nom: string): string {
 
 const ROLES: Array<{ value: string; label: string }> = [
   { value: 'admin', label: 'Administrateur' },
-  { value: 'responsable', label: 'Responsable' },
-  { value: 'operateur', label: 'Opérateur' },
   { value: 'viewer', label: 'Viewer' },
 ]
 
@@ -321,10 +319,6 @@ export default function Utilisateurs() {
                       style={
                         u.role === 'admin'
                           ? { background: '#dbeafe', color: '#1d4ed8' }
-                          : u.role === 'responsable'
-                          ? { background: '#fef3c7', color: '#b45309' }
-                          : u.role === 'operateur'
-                          ? { background: '#f3e8ff', color: '#7c3aed' }
                           : { background: '#f1f5f9', color: '#475569' }
                       }
                     >

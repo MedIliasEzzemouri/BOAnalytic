@@ -25,9 +25,32 @@ class TokenResponse(BaseModel):
 
 class RegisterRequest(BaseModel):
     nom: str
-    email: str
+    email: EmailStr
     password: str
     role: str = "viewer"
+
+
+class UserCreateRequest(BaseModel):
+    """Création d'utilisateur par un admin (rôle choisi)."""
+    nom: str
+    email: EmailStr
+    password: str
+    role: str = "viewer"
+
+
+class UserUpdateRequest(BaseModel):
+    """Modification d'utilisateur par un admin. Tous les champs optionnels."""
+    nom: Optional[str] = None
+    email: Optional[EmailStr] = None
+    password: Optional[str] = None
+
+
+class RoleUpdateRequest(BaseModel):
+    role: str
+
+
+class ActifUpdateRequest(BaseModel):
+    actif: bool
 
 
 # ══════════════════════════════════════════════════════════════

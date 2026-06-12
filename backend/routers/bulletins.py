@@ -2,9 +2,10 @@
 LegalEye — Bulletins Router (Upload + Traitement)
 """
 
+import logging
 import os
 import re
-import shutil
+import sys
 from datetime import date, datetime
 from pathlib import Path
 from typing import List, Optional
@@ -19,7 +20,35 @@ from services.pipeline import traiter_bulletin
 from config import UPLOAD_DIR
 from routers.auth import get_current_user, require_admin
 
+log = logging.getLogger("legaleye.bulletins")
+
 router = APIRouter(prefix="/api/bulletins", tags=["Bulletins"])
+
+# Numéro de BO : chiffres uniquement (utilisé dans un nom de fichier —
+# tout autre caractère ouvrirait un path traversal).
+_NUMERO_RE = re.compile(r"^\d{1,10}$")
+
+# Taille max d'un PDF uploadé (aligné sur client_max_body_size nginx).
+MAX_PDF_BYTES = 100 * 1024 * 1024
+
+
+def _valider_numero(numero: str) -> str:
+    numero = numero.strip()
+    if not _NUMERO_RE.match(numero):
+        raise HTTPException(
+            status_code=400,
+            detail="Numéro de bulletin invalide (chiffres uniquement)",
+        )
+    return numero
+
+
+def _importer_scraper():
+    """Import du module scraper_bo (dossier scraping/ hors backend/)."""
+    scraping_dir = str(Path(UPLOAD_DIR).parent.parent / "scraping")
+    if scraping_dir not in sys.path:
+        sys.path.insert(0, scraping_dir)
+    import scraper_bo
+    return scraper_bo
 
 
 # ── LISTER LES BULLETINS ──
@@ -44,7 +73,7 @@ def detail_bulletin(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    bulletin = db.query(BulletinOfficiel).get(bulletin_id)
+    bulletin = db.get(BulletinOfficiel, bulletin_id)
     if not bulletin:
         raise HTTPException(status_code=404, detail="Bulletin non trouvé")
     return bulletin
@@ -60,6 +89,8 @@ def upload_bulletin(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
+    numero = _valider_numero(numero)
+
     # Vérifier doublon
     existing = db.query(BulletinOfficiel).filter(
         BulletinOfficiel.numero == numero
@@ -67,12 +98,25 @@ def upload_bulletin(
     if existing:
         raise HTTPException(status_code=400, detail=f"Bulletin {numero} déjà existant")
 
-    # Sauvegarder le fichier
+    # Vérifier que le fichier est bien un PDF (magic bytes, pas l'extension)
+    entete = file.file.read(5)
+    file.file.seek(0)
+    if entete != b"%PDF-":
+        raise HTTPException(status_code=400, detail="Le fichier n'est pas un PDF valide")
+
+    # Sauvegarder le fichier (avec plafond de taille)
     filename = f"BO_{numero}_{date_publication}.pdf"
     filepath = os.path.join(UPLOAD_DIR, filename)
 
+    taille = 0
     with open(filepath, "wb") as f:
-        shutil.copyfileobj(file.file, f)
+        while chunk := file.file.read(1024 * 1024):
+            taille += len(chunk)
+            if taille > MAX_PDF_BYTES:
+                f.close()
+                os.remove(filepath)
+                raise HTTPException(status_code=413, detail="PDF trop volumineux (max 100 Mo)")
+            f.write(chunk)
 
     # Créer l'entrée en BDD
     bulletin = BulletinOfficiel(
@@ -99,8 +143,8 @@ def traiter_bulletin_task(bulletin_id: int):
     db = SessionLocal()
     try:
         traiter_bulletin(bulletin_id, db)
-    except Exception as e:
-        print(f"❌ Erreur traitement bulletin {bulletin_id}: {e}")
+    except Exception:
+        log.exception("Erreur traitement bulletin %s", bulletin_id)
     finally:
         db.close()
 
@@ -113,7 +157,7 @@ def retraiter_bulletin(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    bulletin = db.query(BulletinOfficiel).get(bulletin_id)
+    bulletin = db.get(BulletinOfficiel, bulletin_id)
     if not bulletin:
         raise HTTPException(status_code=404, detail="Bulletin non trouvé")
 
@@ -134,7 +178,7 @@ def articles_bulletin(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    bulletin = db.query(BulletinOfficiel).get(bulletin_id)
+    bulletin = db.get(BulletinOfficiel, bulletin_id)
     if not bulletin:
         raise HTTPException(status_code=404, detail="Bulletin non trouvé")
 
@@ -177,19 +221,15 @@ def download_par_numero(
         raise HTTPException(status_code=400, detail=f"Bulletin {numero} déjà en base (statut: {existing.statut})")
 
     try:
-        import sys
-        scraping_dir = str(Path(UPLOAD_DIR).parent.parent / "scraping")
-        if scraping_dir not in sys.path:
-            sys.path.insert(0, scraping_dir)
-        from scraper_bo import telecharger_bulletin, extraire_date_publication
+        scraper = _importer_scraper()
     except ImportError as e:
         raise HTTPException(status_code=500, detail=f"Module scraper introuvable : {e}")
 
-    filepath, annee = telecharger_bulletin(numero, dossier=Path(UPLOAD_DIR), annee=annee)
+    filepath, annee = scraper.telecharger_bulletin(numero, dossier=Path(UPLOAD_DIR), annee=annee)
     if filepath is None:
         raise HTTPException(status_code=404, detail=f"Bulletin {numero} introuvable sur sgg.gov.ma")
 
-    date_pub = extraire_date_publication(filepath)
+    date_pub = scraper.extraire_date_publication(filepath)
     if date_pub is None:
         date_pub = datetime.now().date()
 
@@ -243,12 +283,7 @@ def sync_uploads(
 
         # Extraire la date depuis le PDF
         try:
-            import sys
-            scraping_dir = str(Path(UPLOAD_DIR).parent.parent / "scraping")
-            if scraping_dir not in sys.path:
-                sys.path.insert(0, scraping_dir)
-            from scraper_bo import extraire_date_publication
-            date_pub = extraire_date_publication(pdf)
+            date_pub = _importer_scraper().extraire_date_publication(pdf)
         except Exception:
             date_pub = None
 
@@ -284,14 +319,21 @@ def supprimer_bulletin(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    bulletin = db.query(BulletinOfficiel).get(bulletin_id)
+    bulletin = db.get(BulletinOfficiel, bulletin_id)
     if not bulletin:
         raise HTTPException(status_code=404, detail="Bulletin non trouvé")
 
-    # Supprimer le fichier PDF
-    if bulletin.fichier_pdf and os.path.exists(bulletin.fichier_pdf):
-        os.remove(bulletin.fichier_pdf)
+    numero = bulletin.numero
+    fichier_pdf = bulletin.fichier_pdf
 
+    # Supprimer en BDD d'abord : si le commit échoue, le fichier est intact.
     db.delete(bulletin)
     db.commit()
-    return {"message": f"Bulletin {bulletin.numero} supprimé"}
+
+    if fichier_pdf and os.path.exists(fichier_pdf):
+        try:
+            os.remove(fichier_pdf)
+        except OSError:
+            log.warning("PDF orphelin non supprimé : %s", fichier_pdf)
+
+    return {"message": f"Bulletin {numero} supprimé"}

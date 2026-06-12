@@ -2,21 +2,108 @@
 LegalEye — Auth Router (Login / Register / JWT)
 """
 
-from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends, HTTPException, status
+import logging
+import time
+from collections import defaultdict
+from datetime import datetime, timedelta, timezone
+from threading import Lock
+
+import bcrypt
+import jwt
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
-from passlib.context import CryptContext
-from jose import jwt, JWTError
 
 from database import get_db
 from models import User
-from schemas import LoginRequest, TokenResponse, RegisterRequest
-from config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
+from schemas import (
+    LoginRequest, TokenResponse, RegisterRequest,
+    UserCreateRequest, UserUpdateRequest, RoleUpdateRequest, ActifUpdateRequest,
+)
+from config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, ALLOW_REGISTRATION
+
+log = logging.getLogger("legaleye.auth")
 
 router = APIRouter(prefix="/api/auth", tags=["Auth"])
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 bearer_scheme = HTTPBearer(auto_error=False)
+
+# Rôles valides — alignés sur l'ENUM MySQL `user.role` ('admin','viewer').
+VALID_ROLES = ("admin", "viewer")
+
+# bcrypt tronque silencieusement au-delà de 72 octets : on refuse explicitement.
+PASSWORD_MIN_LEN = 8
+PASSWORD_MAX_BYTES = 72
+
+
+# ══════════════════════════════════════════════════════════════
+#  HELPERS MOTS DE PASSE (bcrypt direct, sans passlib)
+# ══════════════════════════════════════════════════════════════
+
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt(rounds=12)).decode("ascii")
+
+
+def verify_password(password: str, password_hash: str) -> bool:
+    try:
+        return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("ascii"))
+    except (ValueError, TypeError):
+        return False
+
+
+def valider_password(password: str):
+    if len(password) < PASSWORD_MIN_LEN:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Le mot de passe doit faire au moins {PASSWORD_MIN_LEN} caractères",
+        )
+    if len(password.encode("utf-8")) > PASSWORD_MAX_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Le mot de passe ne peut pas dépasser {PASSWORD_MAX_BYTES} octets",
+        )
+
+
+# ══════════════════════════════════════════════════════════════
+#  RATE LIMITING LOGIN (anti brute-force)
+#  Fenêtre glissante en mémoire, par (IP, email). Par worker uvicorn :
+#  avec N workers le plafond effectif est N × MAX_LOGIN_ATTEMPTS, ce qui
+#  reste une protection suffisante contre le brute-force en ligne.
+# ══════════════════════════════════════════════════════════════
+
+MAX_LOGIN_ATTEMPTS = 5
+LOGIN_WINDOW_SECONDS = 15 * 60
+
+_login_failures: dict[str, list[float]] = defaultdict(list)
+_login_lock = Lock()
+
+
+def _rate_limit_key(request: Request, email: str) -> str:
+    client_ip = request.client.host if request.client else "?"
+    return f"{client_ip}|{email.lower()}"
+
+
+def _check_rate_limit(key: str):
+    now = time.monotonic()
+    with _login_lock:
+        attempts = _login_failures[key] = [
+            t for t in _login_failures[key] if now - t < LOGIN_WINDOW_SECONDS
+        ]
+        if len(attempts) >= MAX_LOGIN_ATTEMPTS:
+            log.warning("Rate limit login déclenché pour %s", key)
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Trop de tentatives. Réessaie dans quelques minutes.",
+            )
+
+
+def _record_failure(key: str):
+    with _login_lock:
+        _login_failures[key].append(time.monotonic())
+
+
+def _clear_failures(key: str):
+    with _login_lock:
+        _login_failures.pop(key, None)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -24,7 +111,7 @@ bearer_scheme = HTTPBearer(auto_error=False)
 # ══════════════════════════════════════════════════════════════
 
 def create_token(user_id: int, role: str) -> str:
-    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     return jwt.encode(
         {"sub": str(user_id), "role": role, "exp": expire},
         SECRET_KEY, algorithm=ALGORITHM,
@@ -46,16 +133,16 @@ def get_current_user(
         payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
         user_id_str = payload.get("sub")
         if user_id_str is None:
-            raise JWTError("Token sans sub")
+            raise jwt.InvalidTokenError("Token sans sub")
         user_id = int(user_id_str)
-    except (JWTError, ValueError):
+    except (jwt.PyJWTError, ValueError):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token invalide ou expiré",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    user = db.query(User).get(user_id)
+    user = db.get(User, user_id)
     if user is None or not user.actif:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -79,13 +166,18 @@ def require_admin(current_user: User = Depends(get_current_user)) -> User:
 # ══════════════════════════════════════════════════════════════
 
 @router.post("/login", response_model=TokenResponse)
-def login(data: LoginRequest, db: Session = Depends(get_db)):
+def login(data: LoginRequest, request: Request, db: Session = Depends(get_db)):
+    key = _rate_limit_key(request, data.email)
+    _check_rate_limit(key)
+
     user = db.query(User).filter(User.email == data.email).first()
-    if not user or not pwd_context.verify(data.password, user.password_hash):
+    if not user or not verify_password(data.password, user.password_hash):
+        _record_failure(key)
         raise HTTPException(status_code=401, detail="Email ou mot de passe incorrect")
     if not user.actif:
         raise HTTPException(status_code=403, detail="Compte désactivé")
 
+    _clear_failures(key)
     token = create_token(user.id, user.role)
     return TokenResponse(
         access_token=token,
@@ -99,14 +191,17 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
 def register(data: RegisterRequest, db: Session = Depends(get_db)):
     """
     Inscription publique : tout nouveau compte est créé en **viewer**.
-    Pour promouvoir un viewer en admin, voir PUT /api/auth/users/{id}/role
-    (réservé aux admins).
+    Désactivée par défaut en production (ALLOW_REGISTRATION=false) :
+    les bulletins, alertes et partenaires sont des données internes,
+    un compte viewer suffit pour tout lire.
     """
-    if len(data.password) < 8:
+    if not ALLOW_REGISTRATION:
         raise HTTPException(
-            status_code=400,
-            detail="Le mot de passe doit faire au moins 8 caractères",
+            status_code=403,
+            detail="Inscription désactivée. Contacte un administrateur.",
         )
+
+    valider_password(data.password)
 
     existing = db.query(User).filter(User.email == data.email).first()
     if existing:
@@ -116,7 +211,7 @@ def register(data: RegisterRequest, db: Session = Depends(get_db)):
     user = User(
         nom=data.nom,
         email=data.email,
-        password_hash=pwd_context.hash(data.password),
+        password_hash=hash_password(data.password),
         role="viewer",
     )
     db.add(user)
@@ -170,50 +265,48 @@ def lister_utilisateurs(
 @router.put("/users/{user_id}/role")
 def changer_role(
     user_id: int,
-    role: str,
+    data: RoleUpdateRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    """Promeut/rétrograde un utilisateur. Role valide : 'admin' ou 'viewer'."""
-    if role not in ("admin", "viewer", "responsable", "operateur"):
-        raise HTTPException(status_code=400, detail="Role invalide (admin|viewer|responsable|operateur)")
+    """Promeut/rétrograde un utilisateur. Rôles valides : 'admin' ou 'viewer'."""
+    if data.role not in VALID_ROLES:
+        raise HTTPException(status_code=400, detail="Role invalide (admin|viewer)")
 
-    user = db.query(User).get(user_id)
+    user = db.get(User, user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="Utilisateur introuvable")
 
     # Garde-fou : on ne se rétrograde pas soi-même par accident.
-    if user.id == current_user.id and role != "admin":
+    if user.id == current_user.id and data.role != "admin":
         raise HTTPException(
             status_code=400,
             detail="Tu ne peux pas te retirer ton propre rôle admin",
         )
 
-    user.role = role
+    user.role = data.role
     db.commit()
     return {"id": user.id, "email": user.email, "role": user.role}
 
 
 @router.post("/users")
 def creer_utilisateur(
-    data: RegisterRequest,
-    role: str = "viewer",
+    data: UserCreateRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
     """Crée un utilisateur avec le rôle choisi (admin only)."""
-    if role not in ("admin", "viewer", "responsable", "operateur"):
-        raise HTTPException(status_code=400, detail="Role invalide")
-    if len(data.password) < 8:
-        raise HTTPException(status_code=400, detail="Mot de passe trop court (min 8 caractères)")
+    if data.role not in VALID_ROLES:
+        raise HTTPException(status_code=400, detail="Role invalide (admin|viewer)")
+    valider_password(data.password)
     if db.query(User).filter(User.email == data.email).first():
         raise HTTPException(status_code=400, detail="Email déjà utilisé")
 
     user = User(
         nom=data.nom,
         email=data.email,
-        password_hash=pwd_context.hash(data.password),
-        role=role,
+        password_hash=hash_password(data.password),
+        role=data.role,
     )
     db.add(user)
     db.commit()
@@ -224,27 +317,24 @@ def creer_utilisateur(
 @router.put("/users/{user_id}")
 def modifier_utilisateur(
     user_id: int,
-    nom: str | None = None,
-    email: str | None = None,
-    password: str | None = None,
+    data: UserUpdateRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    """Modifie nom/email/password (admin only)."""
-    user = db.query(User).get(user_id)
+    """Modifie nom/email/password (admin only). Champs dans le corps de requête."""
+    user = db.get(User, user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="Utilisateur introuvable")
-    if nom:
-        user.nom = nom
-    if email:
-        existing = db.query(User).filter(User.email == email, User.id != user_id).first()
+    if data.nom:
+        user.nom = data.nom
+    if data.email:
+        existing = db.query(User).filter(User.email == data.email, User.id != user_id).first()
         if existing:
             raise HTTPException(status_code=400, detail="Email déjà utilisé")
-        user.email = email
-    if password:
-        if len(password) < 8:
-            raise HTTPException(status_code=400, detail="Mot de passe trop court (min 8 caractères)")
-        user.password_hash = pwd_context.hash(password)
+        user.email = data.email
+    if data.password:
+        valider_password(data.password)
+        user.password_hash = hash_password(data.password)
     db.commit()
     return {"id": user.id, "nom": user.nom, "email": user.email, "role": user.role, "actif": user.actif, "created_at": user.created_at}
 
@@ -258,7 +348,7 @@ def supprimer_utilisateur(
     """Supprime un utilisateur (admin only). Impossible sur soi-même."""
     if user_id == current_user.id:
         raise HTTPException(status_code=400, detail="Tu ne peux pas supprimer ton propre compte")
-    user = db.query(User).get(user_id)
+    user = db.get(User, user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="Utilisateur introuvable")
     db.delete(user)
@@ -269,16 +359,16 @@ def supprimer_utilisateur(
 @router.put("/users/{user_id}/actif")
 def activer_desactiver(
     user_id: int,
-    actif: bool,
+    data: ActifUpdateRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
     """Active ou désactive un compte (admin only)."""
-    user = db.query(User).get(user_id)
+    user = db.get(User, user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="Utilisateur introuvable")
-    if user.id == current_user.id and not actif:
+    if user.id == current_user.id and not data.actif:
         raise HTTPException(status_code=400, detail="Tu ne peux pas te désactiver toi-même")
-    user.actif = actif
+    user.actif = data.actif
     db.commit()
     return {"id": user.id, "email": user.email, "actif": user.actif}

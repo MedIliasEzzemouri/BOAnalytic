@@ -16,12 +16,12 @@ sqlalchemy>=2.0.35,<2.1.0
 pymysql>=1.1.1
 
 # Auth
-# bcrypt epingle <5.0 : passlib n'est pas encore compatible avec bcrypt 5.x
-# (ValueError: password cannot be longer than 72 bytes)
-python-jose[cryptography]>=3.3.0
-passlib[bcrypt]>=1.7.4
+# PyJWT remplace python-jose (abandonne, CVE-2024-33663/33664).
+# bcrypt utilise en direct (passlib n'est plus maintenu) ; la limite
+# des 72 octets est geree explicitement dans routers/auth.py.
+PyJWT>=2.8.0,<3.0.0
 python-multipart>=0.0.9
-bcrypt>=4.0.0,<5.0.0
+bcrypt>=4.0.0
 
 # ML / NLP
 # scikit-learn épinglé : les .pkl du Modèle 3 (RandomForest) ont été

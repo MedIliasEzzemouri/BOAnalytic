@@ -64,21 +64,24 @@ export const authApi = {
       .then((r) => r.data),
   me: () => api.get<User>('/api/auth/me').then((r) => r.data),
   listUsers: () => api.get<User[]>('/api/auth/users').then((r) => r.data),
+  // Données sensibles (mot de passe inclus) dans le CORPS de la requête,
+  // jamais en query string (les query strings finissent dans les logs nginx).
   createUser: (nom: string, email: string, password: string, role: string) =>
-    api.post<User>('/api/auth/users', { nom, email, password }, { params: { role } }).then((r) => r.data),
+    api.post<User>('/api/auth/users', { nom, email, password, role }).then((r) => r.data),
   updateUser: (userId: number, data: { nom?: string; email?: string; password?: string }) =>
-    api.put<User>(`/api/auth/users/${userId}`, null, { params: data }).then((r) => r.data),
+    api.put<User>(`/api/auth/users/${userId}`, data).then((r) => r.data),
   deleteUser: (userId: number) =>
     api.delete(`/api/auth/users/${userId}`).then((r) => r.data),
   setRole: (userId: number, role: string) =>
-    api.put(`/api/auth/users/${userId}/role`, null, { params: { role } }).then((r) => r.data),
+    api.put(`/api/auth/users/${userId}/role`, { role }).then((r) => r.data),
   setActif: (userId: number, actif: boolean) =>
-    api.put(`/api/auth/users/${userId}/actif`, null, { params: { actif } }).then((r) => r.data),
+    api.put(`/api/auth/users/${userId}/actif`, { actif }).then((r) => r.data),
 }
 
 // ── Bulletins ──
 export const bulletinsApi = {
-  list: () => api.get<Bulletin[]>('/api/bulletins/').then((r) => r.data),
+  list: (params?: { statut?: string; limit?: number; offset?: number }) =>
+    api.get<Bulletin[]>('/api/bulletins/', { params }).then((r) => r.data),
   get: (id: number) => api.get<Bulletin>(`/api/bulletins/${id}`).then((r) => r.data),
   upload: (form: FormData) =>
     api

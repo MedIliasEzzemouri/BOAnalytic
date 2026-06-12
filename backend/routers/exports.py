@@ -2,6 +2,7 @@
 LegalEye — Endpoints d'export PDF.
 """
 
+import logging
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
@@ -11,6 +12,8 @@ from database import get_db
 from models import User
 from routers.auth import get_current_user
 from services.export_pdf import generer_rapport_global
+
+log = logging.getLogger("legaleye.exports")
 
 router = APIRouter(prefix="/api/exports", tags=["Exports"])
 
@@ -44,10 +47,12 @@ def rapport_global(
         pdf_bytes = generer_rapport_global(
             db=db, jours=jours, titre_personnalise=titre,
         )
-    except Exception as e:
+    except Exception:
+        # Détail loggé côté serveur uniquement — pas d'internals dans la réponse.
+        log.exception("Erreur lors de la génération du rapport global")
         raise HTTPException(
             status_code=500,
-            detail=f"Erreur lors de la génération du rapport : {e}",
+            detail="Erreur lors de la génération du rapport",
         )
 
     if not pdf_bytes:

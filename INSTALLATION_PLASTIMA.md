@@ -209,6 +209,10 @@ SECRET_KEY=<chaîne aléatoire de 64 caractères>
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=1440
 
+# Inscription publique (false en production : les comptes
+# sont créés par un admin depuis la page Utilisateurs)
+ALLOW_REGISTRATION=false
+
 # Frontend
 FRONTEND_URL=http://localhost
 
