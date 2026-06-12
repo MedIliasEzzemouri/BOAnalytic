@@ -182,7 +182,6 @@ export default function Bulletins() {
   const [showImport, setShowImport] = useState(false)
   const [busy, setBusy] = useState<number | null>(null)
   const [syncing, setSyncing] = useState(false)
-  const [scanning, setScanning] = useState(false)
   const [syncMsg, setSyncMsg] = useState<string | null>(null)
 
   function load() {
@@ -196,6 +195,19 @@ export default function Bulletins() {
   }
 
   useEffect(load, [])
+
+  // Rafraîchissement auto toutes les 10 s : les bulletins téléchargés par
+  // le scraper (bouton Synchroniser ou job planifié) apparaissent et leur
+  // statut (En attente → En cours → Traité) évolue sans recharger la page.
+  useEffect(() => {
+    const id = setInterval(() => {
+      bulletinsApi
+        .list({ limit: 500 })
+        .then(setBulletins)
+        .catch(() => undefined)
+    }, 10_000)
+    return () => clearInterval(id)
+  }, [])
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -225,32 +237,29 @@ export default function Bulletins() {
   }
 
   async function handleSync() {
+    // Une seule action "Synchroniser" : importe les PDF du dossier uploads
+    // PUIS lance la recherche de nouveaux bulletins sur sgg.gov.ma.
+    // Les nouveaux BO trouvés sont téléchargés, insérés et traités par le
+    // pipeline ML automatiquement (la liste se rafraîchit toute seule).
     setSyncing(true)
     setSyncMsg(null)
     try {
-      const res = await bulletinsApi.syncUploads()
-      setSyncMsg(res.message)
-      if (res.imported > 0) load()
+      const local = await bulletinsApi.syncUploads()
+      const scan = await bulletinsApi.scanNouveaux()
+      const parts: string[] = []
+      if (local.imported > 0) parts.push(`${local.imported} PDF importé(s) du dossier`)
+      parts.push(
+        `recherche de nouveaux BO sur sgg.gov.ma lancée (depuis le n° ${scan.dernier_numero_connu})`,
+      )
+      setSyncMsg(
+        parts.join(' — ') +
+        '. Les nouveaux bulletins apparaîtront automatiquement ci-dessous.',
+      )
+      load()
     } catch (err) {
       setSyncMsg(errorMessage(err))
     } finally {
       setSyncing(false)
-    }
-  }
-
-  async function handleScan() {
-    setScanning(true)
-    setSyncMsg(null)
-    try {
-      const res = await bulletinsApi.scanNouveaux()
-      setSyncMsg(
-        `${res.message} — recherche depuis le n° ${res.dernier_numero_connu}. ` +
-        'Les nouveaux bulletins apparaîtront ici au fil du traitement (recharge la page).',
-      )
-    } catch (err) {
-      setSyncMsg(errorMessage(err))
-    } finally {
-      setScanning(false)
     }
   }
 
@@ -293,19 +302,11 @@ export default function Bulletins() {
                 <>
                   <Button
                     variant="outline"
-                    icon="cloud_download"
-                    loading={scanning}
-                    onClick={handleScan}
-                  >
-                    {scanning ? 'Scan…' : 'Scan nouveaux BO'}
-                  </Button>
-                  <Button
-                    variant="outline"
                     icon="sync"
                     loading={syncing}
                     onClick={handleSync}
                   >
-                    {syncing ? 'Synchronisation…' : 'Sync uploads'}
+                    {syncing ? 'Synchronisation…' : 'Synchroniser'}
                   </Button>
                   <Button variant="clay" icon="add" onClick={() => setShowImport(true)}>
                     Nouveau bulletin
