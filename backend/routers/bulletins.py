@@ -248,7 +248,12 @@ def download_par_numero(
     return bulletin
 
 
-# ── SYNC UPLOADS (admin) — importe les BOAL_*.pdf non encore en BDD ──
+# ── SYNC UPLOADS (admin) — importe les PDF du dossier non encore en BDD ──
+
+# Noms acceptés : BOAL_5921.pdf (scraper) et BO_5907_2026-01-14.pdf (upload manuel)
+_SYNC_PDF_RE = re.compile(r"^BO(?:AL)?_(\d+)(?:_\d{4}-\d{2}-\d{2})?\.pdf$", re.IGNORECASE)
+
+
 @router.post("/sync-uploads")
 def sync_uploads(
     background_tasks: BackgroundTasks,
@@ -256,24 +261,27 @@ def sync_uploads(
     current_user: User = Depends(require_admin),
 ):
     """
-    Scanne UPLOAD_DIR pour les BOAL_*.pdf absents de la BDD,
-    les insère avec statut 'en_attente' et lance le pipeline ML en background.
+    Scanne UPLOAD_DIR pour les PDF de bulletins (BOAL_*.pdf ou BO_*.pdf)
+    absents de la BDD, les insère avec statut 'en_attente' et lance le
+    pipeline ML en background.
     """
     upload_path = Path(UPLOAD_DIR)
     if not upload_path.exists():
         raise HTTPException(status_code=404, detail=f"Dossier uploads introuvable : {UPLOAD_DIR}")
 
-    pdfs = sorted(upload_path.glob("BOAL_*.pdf"))
+    pdfs = sorted(p for p in upload_path.glob("*.pdf") if _SYNC_PDF_RE.match(p.name))
     if not pdfs:
-        return {"imported": 0, "skipped": 0, "message": "Aucun fichier BOAL_*.pdf trouvé"}
+        return {
+            "imported": 0,
+            "skipped": 0,
+            "message": "Aucun PDF de bulletin trouvé (formats acceptés : BOAL_<numéro>.pdf, BO_<numéro>_<date>.pdf)",
+        }
 
     imported = []
     skipped = []
 
     for pdf in pdfs:
-        m = re.match(r"BOAL_(\d+)\.pdf$", pdf.name)
-        if not m:
-            continue
+        m = _SYNC_PDF_RE.match(pdf.name)
         numero = m.group(1)
 
         existing = db.query(BulletinOfficiel).filter(BulletinOfficiel.numero == numero).first()

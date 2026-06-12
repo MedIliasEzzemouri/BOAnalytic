@@ -388,34 +388,35 @@ def extraire_annonces_bo(pdf_path, output_path="annonces.txt", y_entete=70):
 
     doc.close()
 
-    # ── ÉCRITURE ─────────────────────────────────────────────
-    with open(output_path, 'w', encoding='utf-8') as f:
+    # ── ÉCRITURE (optionnelle : output_path=None pour ne rien écrire) ──
+    if output_path:
+        with open(output_path, 'w', encoding='utf-8') as f:
 
-        # ── SOMMAIRE ──
-        f.write("=" * 60 + "\n")
-        f.write("SOMMAIRE — فهرس اإلعالنات القانونية\n")
-        f.write("=" * 60 + "\n\n")
-        for entry in sommaire:
-            f.write(f"{entry['nom']}\t{entry['page']}\n")
-        f.write("\n")
+            # ── SOMMAIRE ──
+            f.write("=" * 60 + "\n")
+            f.write("SOMMAIRE — فهرس اإلعالنات القانونية\n")
+            f.write("=" * 60 + "\n\n")
+            for entry in sommaire:
+                f.write(f"{entry['nom']}\t{entry['page']}\n")
+            f.write("\n")
 
-        # ── SECTION I ──
-        f.write("=" * 60 + "\n")
-        f.write("SECTION I — إعلانات قانونية (Annonces Légales)\n")
-        f.write("=" * 60 + "\n\n")
-        for annonce, page in annonces_I:
-            f.write(f"[page {page}]\n")
-            f.write(annonce)
-            f.write("\n" + "-" * 50 + "\n\n")
+            # ── SECTION I ──
+            f.write("=" * 60 + "\n")
+            f.write("SECTION I — إعلانات قانونية (Annonces Légales)\n")
+            f.write("=" * 60 + "\n\n")
+            for annonce, page in annonces_I:
+                f.write(f"[page {page}]\n")
+                f.write(annonce)
+                f.write("\n" + "-" * 50 + "\n\n")
 
-        # ── SECTION II ──
-        f.write("=" * 60 + "\n")
-        f.write("SECTION II — إعلانات قضائية (Annonces Judiciaires)\n")
-        f.write("=" * 60 + "\n\n")
-        for annonce, page in annonces_II:
-            f.write(f"[page {page}]\n")
-            f.write(annonce)
-            f.write("\n" + "-" * 50 + "\n\n")
+            # ── SECTION II ──
+            f.write("=" * 60 + "\n")
+            f.write("SECTION II — إعلانات قضائية (Annonces Judiciaires)\n")
+            f.write("=" * 60 + "\n\n")
+            for annonce, page in annonces_II:
+                f.write(f"[page {page}]\n")
+                f.write(annonce)
+                f.write("\n" + "-" * 50 + "\n\n")
 
     # ── STATISTIQUES ─────────────────────────────────────────
     total = len(annonces_I) + len(annonces_II)
@@ -423,7 +424,8 @@ def extraire_annonces_bo(pdf_path, output_path="annonces.txt", y_entete=70):
     print(f"Section I  (légales)     : {len(annonces_I)} annonces")
     print(f"Section II (judiciaires) : {len(annonces_II)} annonces")
     print(f"Total                    : {total} annonces")
-    print(f"Fichier                  : {output_path}")
+    if output_path:
+        print(f"Fichier                  : {output_path}")
 
     return sommaire, annonces_I, annonces_II
 

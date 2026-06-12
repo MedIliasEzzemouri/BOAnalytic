@@ -124,9 +124,10 @@ def charger_modeles():
 
 def extraire_annonces(pdf_path: str) -> dict:
     """Wrapper autour de extraire_annonces_bo() : renvoie sommaire + Sections I/II + nb_pages."""
-    output_tmp = pdf_path.replace(".pdf", "_annonces.txt")
+    # output_path=None : pas de fichier *_annonces.txt à côté du PDF
+    # (les annonces vont en BDD, le .txt ne servait à rien en prod).
     sommaire, annonces_I, annonces_II = extraire_annonces_bo(
-        pdf_path, output_path=output_tmp
+        pdf_path, output_path=None
     )
     # nb_pages : on lit le PDF rapidement
     try:
