@@ -2,13 +2,12 @@
 LegalEye — Alertes Router
 """
 
-from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
 
 from database import get_db
-from models import Alerte, ArticleEntreprise, ArticleMahakim, Tier, User
+from models import Alerte, ArticleEntreprise, ArticleMahakim, Tier, User, utcnow
 from schemas import AlerteResponse, AlerteUpdate
 from routers.auth import get_current_user, require_admin
 
@@ -70,11 +69,15 @@ def detail_alerte(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    alerte = db.query(Alerte).options(
-        joinedload(Alerte.tier),
-        joinedload(Alerte.article_entreprise),
-        joinedload(Alerte.article_mahakim),
-    ).get(alerte_id)
+    alerte = db.get(
+        Alerte,
+        alerte_id,
+        options=[
+            joinedload(Alerte.tier),
+            joinedload(Alerte.article_entreprise),
+            joinedload(Alerte.article_mahakim),
+        ],
+    )
 
     if not alerte:
         raise HTTPException(status_code=404, detail="Alerte non trouvée")
@@ -91,14 +94,14 @@ def modifier_alerte(
     # Les viewers peuvent consulter et marquer comme vue, pas décider.
     current_user: User = Depends(require_admin),
 ):
-    alerte = db.query(Alerte).get(alerte_id)
+    alerte = db.get(Alerte, alerte_id)
     if not alerte:
         raise HTTPException(status_code=404, detail="Alerte non trouvée")
 
     if data.statut:
         alerte.statut = data.statut
         if data.statut in ("traitee", "ignoree"):
-            alerte.traitee_at = datetime.utcnow()
+            alerte.traitee_at = utcnow()
             alerte.traitee_par = current_user.id
     if data.commentaire is not None:
         alerte.commentaire = data.commentaire
@@ -115,7 +118,7 @@ def marquer_vue(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    alerte = db.query(Alerte).get(alerte_id)
+    alerte = db.get(Alerte, alerte_id)
     if not alerte:
         raise HTTPException(status_code=404, detail="Alerte non trouvée")
     if alerte.statut == "nouvelle":

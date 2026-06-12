@@ -17,25 +17,19 @@ Auteur : Marouan (Plastima - DUT IDIA)
 
 import os
 import re
-import hashlib
 from typing import Optional, Tuple, List
 
 import fitz
 from PIL import Image, ImageDraw
+
+from config import CACHE_DIR
 
 
 # ─────────────────────────────────────────────────────────────
 #  Cache disque
 # ─────────────────────────────────────────────────────────────
 
-_CACHE_DIR = os.path.normpath(
-    os.path.join(
-        os.path.dirname(os.path.abspath(__file__)),
-        "..",
-        "cache",
-        "screenshots",
-    )
-)
+_CACHE_DIR = os.path.join(CACHE_DIR, "screenshots")
 
 
 def _ensure_cache_dir():
@@ -88,15 +82,6 @@ def _lignes_significatives(texte: str, min_len: int = 12) -> List[str]:
             continue
         out.append(l)
     return out
-
-
-def _snippet_distinctif(texte: str, longueur: int = 30) -> Optional[str]:
-    """Première ligne distinctive trouvée (compatibilité ascendante)."""
-    lignes = _lignes_significatives(texte)
-    if not lignes:
-        return None
-    snippet = lignes[0][:longueur].strip()
-    return snippet if len(snippet) >= 10 else None
 
 
 def _extraire_rc(texte: str) -> Optional[str]:
@@ -264,32 +249,6 @@ def _est_separateur(texte: str) -> bool:
     return False
 
 
-def _bloc_text(b: dict) -> str:
-    """Concatène le texte de tous les spans d'un bloc PyMuPDF."""
-    out = []
-    for line in b.get("lines", []):
-        for span in line.get("spans", []):
-            out.append(span.get("text", ""))
-        out.append(" ")
-    return "".join(out).strip()
-
-
-def _blocs_avec_texte(page: "fitz.Page") -> List[Tuple[float, float, float, float, str]]:
-    """
-    [LEGACY] Renvoie tous les blocs texte de la page avec leur contenu.
-    Préférer _lignes_avec_texte() qui est plus granulaire pour la
-    détection de séparateurs.
-    """
-    data = page.get_text("dict").get("blocks", [])
-    out = []
-    for b in data:
-        if b.get("type") != 0:
-            continue
-        x0, y0, x1, y1 = b["bbox"]
-        out.append((x0, y0, x1, y1, _bloc_text(b)))
-    return out
-
-
 def _lignes_avec_texte(page: "fitz.Page") -> List[Tuple[float, float, float, float, str]]:
     """
     Renvoie toutes les LIGNES de la page (plus granulaire que les blocs),
@@ -318,58 +277,8 @@ def _lignes_avec_texte(page: "fitz.Page") -> List[Tuple[float, float, float, flo
 # dans la colonne, on considère que l'annonce s'arrête là.
 GAP_FIN = 22.0    # points PDF — empiriquement ~1.5 lignes
 
-# Distance du bas de la page en dessous de laquelle on considère que
-# l'annonce déborde sur la colonne suivante (ou la page suivante).
-SEUIL_BAS_PAGE = 60.0
-
 # Marge interne autour du texte (en points PDF)
 MARGE = 3.0
-
-
-def _blocks_de_page(page: fitz.Page) -> List[Tuple[float, float, float, float]]:
-    """Renvoie tous les bboxes de blocs texte de la page (filtrés)."""
-    blocks = page.get_text("dict").get("blocks", [])
-    return [
-        b["bbox"]
-        for b in blocks
-        if b.get("type") == 0
-    ]
-
-
-def _region_dans_colonne(
-    blocks: List[Tuple[float, float, float, float]],
-    centre_x: float,
-    y_haut: Optional[float] = None,
-) -> Optional[fitz.Rect]:
-    """
-    [LEGACY] Calcule la bbox englobante des blocs d'une colonne via gap.
-    Conservée pour compatibilité — préférer _region_jusqu_au_separateur().
-    """
-    candidats = []
-    for bx0, by0, bx1, by1 in blocks:
-        cx = (bx0 + bx1) / 2
-        if not (centre_x - LARGEUR_COLONNE / 2 - 10 <= cx <= centre_x + LARGEUR_COLONNE / 2 + 10):
-            continue
-        if y_haut is not None and by1 < y_haut - 2:
-            continue
-        candidats.append((bx0, by0, bx1, by1))
-
-    if not candidats:
-        return None
-
-    candidats.sort(key=lambda b: b[1])
-    x_min, y_min, x_max, y_max = candidats[0]
-    last_y = y_max
-    for bx0, by0, bx1, by1 in candidats[1:]:
-        gap = by0 - last_y
-        if gap > GAP_FIN:
-            break
-        x_min = min(x_min, bx0)
-        x_max = max(x_max, bx1)
-        y_max = max(y_max, by1)
-        last_y = by1
-
-    return fitz.Rect(x_min - MARGE, y_min - MARGE, x_max + MARGE, y_max + MARGE)
 
 
 def _region_jusqu_au_separateur(
@@ -443,152 +352,6 @@ def _region_jusqu_au_separateur(
         fitz.Rect(x_min - MARGE, y_min - MARGE, x_max + MARGE, y_max + MARGE),
         separateur_trouve,
     )
-
-
-def _ref_finale_de_l_annonce(texte_annonce: Optional[str]) -> Optional[str]:
-    """
-    Extrait le numéro de référence unique qui termine chaque annonce
-    du BO marocain. Patterns typiques :
-        "تم الإيداع ... تحت رقم 60493"
-        "تم التقييد ... تحت رقم .709679"
-
-    Ce numéro est UNIQUE par annonce — donc fiable comme marqueur de fin,
-    contrairement à des phrases génériques type "تم الإيداع القانوني"
-    qui apparaissent dans toutes les annonces.
-    """
-    if not texte_annonce:
-        return None
-
-    # Pattern 1 : "تحت رقم XXXXX" (numéro de dépôt légal / RC)
-    matches = re.findall(r"تحت\s+رقم\s*\.?\s*(\d{4,8})", texte_annonce)
-    if matches:
-        return matches[-1]
-
-    # Pattern 2 : dernier numéro à 5-7 chiffres dans le texte
-    matches = re.findall(r"\b(\d{5,7})\b", texte_annonce)
-    if matches:
-        return matches[-1]
-
-    return None
-
-
-def _zone_de_fin_dans_colonne(
-    page: fitz.Page,
-    texte_annonce: Optional[str],
-    centre_x: float,
-) -> Optional[fitz.Rect]:
-    """
-    Cherche la fin de l'annonce dans une colonne donnée, via la
-    référence unique. Renvoie le Rect ou None.
-    """
-    ref = _ref_finale_de_l_annonce(texte_annonce)
-    if not ref:
-        return None
-
-    zones = page.search_for(ref)
-    if not zones:
-        return None
-
-    zones_col = [
-        z for z in zones
-        if centre_x - LARGEUR_COLONNE / 2 - 10
-           <= (z.x0 + z.x1) / 2
-           <= centre_x + LARGEUR_COLONNE / 2 + 10
-    ]
-    return zones_col[-1] if zones_col else None
-
-
-def _annonce_complete_dans_regions(
-    page: fitz.Page,
-    regions: List[fitz.Rect],
-    texte_annonce: Optional[str],
-) -> bool:
-    """
-    Vérifie si la fin de l'annonce se trouve à l'intérieur des régions.
-
-    Utilise le numéro de référence unique (تحت رقم XXXX) qui est unique
-    à chaque annonce — donc fiable contrairement aux snippets de texte
-    génériques qu'on retrouve dans toutes les annonces du BO.
-    """
-    if not texte_annonce or not regions:
-        return False
-
-    ref = _ref_finale_de_l_annonce(texte_annonce)
-    if not ref:
-        return False
-
-    zones = page.search_for(ref)
-    if not zones:
-        return False
-
-    for z in zones:
-        for r in regions:
-            if (r.x0 - 4 <= z.x0 and z.x1 <= r.x1 + 4
-                    and r.y0 - 4 <= z.y0 and z.y1 <= r.y1 + 4):
-                return True
-    return False
-
-
-def _continue_vraiment_page_suivante(
-    doc: fitz.Document,
-    page_num: int,
-    nom_entreprise: Optional[str],
-    texte_annonce: Optional[str],
-) -> bool:
-    """
-    Décide s'il y a une VRAIE continuation page suivante.
-
-    Par défaut : NON, on ne continue pas. On ne dit OUI que si on a
-    une preuve positive de continuation :
-
-    1. Le nom_entreprise apparaît sur la page suivante (en SAUTANT le
-       sommaire), preuve forte que la même annonce continue.
-    2. Ou une ligne distinctive du texte_annonce apparaît sur la page
-       suivante alors qu'elle n'a pas été trouvée sur la page courante.
-
-    Ce check conservateur évite de surligner toute une page voisine
-    quand l'annonce s'est en fait terminée naturellement.
-    """
-    next_num = page_num + 1
-    if next_num >= len(doc):
-        return False
-
-    next_page = doc[next_num]
-
-    # 1) Preuve la plus fiable : le nom_entreprise apparaît sur la page suivante
-    if nom_entreprise and len(nom_entreprise) >= 4:
-        zones = next_page.search_for(nom_entreprise)
-        if zones:
-            # Le nom apparaît → c'est sans doute la suite. Vérifier que
-            # ce n'est pas juste une mention dans une autre annonce :
-            # une vraie continuation devrait être dans le HAUT de la
-            # colonne la plus à droite (sens RTL).
-            page_w = next_page.rect.width
-            for z in zones:
-                # Doit être dans la moitié droite ET dans le haut (y < 200)
-                if z.x0 > page_w / 2 and z.y0 < 200:
-                    return True
-            # Sinon, c'est probablement une mention isolée — pas une
-            # vraie continuation. On ne déclenche pas la continuation
-            # automatiquement dans ce cas.
-
-    # 2) Fallback : recherche d'une ligne distinctive du texte
-    if texte_annonce:
-        lignes_sig = _lignes_significatives(texte_annonce, min_len=15)
-        # On essaie les 3 dernières lignes (probables, car en fin de texte)
-        for ligne in lignes_sig[-3:]:
-            terme = ligne[:35]
-            if len(terme) < 12:
-                continue
-            zones = next_page.search_for(terme)
-            if not zones:
-                continue
-            # Idem : doit être en haut de la page (continuation typique)
-            for z in zones:
-                if z.y0 < 200:
-                    return True
-
-    return False
 
 
 def _bbox_annonce_simple(
@@ -796,11 +559,6 @@ def _combiner_verticalement(images: List[Image.Image]) -> bytes:
     return buf.getvalue()
 
 
-# Hauteur maxi d'une continuation quand on n'arrive pas à localiser sa fin.
-# Empiriquement, une continuation typique fait 10-15 lignes (~200pt à zoom 1).
-MAX_CONTINUATION_HEIGHT = 240.0
-
-
 def _trouver_continuation_par_separateur(
     doc: fitz.Document,
     page_num_courant: int,
@@ -856,95 +614,9 @@ def _trouver_continuation(
     texte_annonce: Optional[str] = None,
 ) -> Tuple[Optional[fitz.Page], List[fitz.Rect], bool]:
     """
-    Wrapper : route vers la nouvelle logique basée sur les séparateurs.
+    Wrapper : route vers la logique basée sur les séparateurs.
     """
     return _trouver_continuation_par_separateur(doc, page_num_courant)
-
-
-def _LEGACY_trouver_continuation(
-    doc: fitz.Document,
-    page_num_courant: int,
-    texte_annonce: Optional[str] = None,
-) -> Tuple[Optional[fitz.Page], List[fitz.Rect], bool]:
-    """
-    [LEGACY] Ancienne stratégie basée sur la référence unique.
-    Conservée pour rollback rapide.
-    """
-    next_num = page_num_courant + 1
-    if next_num >= len(doc):
-        return None, [], False
-
-    next_page = doc[next_num]
-    blocks = _blocks_de_page(next_page)
-    if not blocks:
-        return next_page, [], False
-
-    page_width = next_page.rect.width
-    page_height = next_page.rect.height
-
-    # Centres des 4 colonnes en sens RTL (colonne 0 = rightmost)
-    centres_cols = [
-        page_width - (i + 0.5) * LARGEUR_COLONNE - 8
-        for i in range(4)
-    ]
-
-    # ── Cas 1 : on trouve la zone de fin via la référence unique ──
-    ref = _ref_finale_de_l_annonce(texte_annonce)
-    fin_col_idx = None
-    fin_y_max = None
-
-    if ref:
-        toutes_zones_fin = next_page.search_for(ref)
-        # Pour chaque zone trouvée, déterminer dans quelle colonne
-        for z in toutes_zones_fin:
-            cx = (z.x0 + z.x1) / 2
-            for idx, centre in enumerate(centres_cols):
-                if abs(cx - centre) < LARGEUR_COLONNE / 2 + 10:
-                    # On garde la colonne la plus à droite (1ère en RTL)
-                    # où la ref apparaît — c'est la continuation directe
-                    if fin_col_idx is None or idx < fin_col_idx:
-                        fin_col_idx = idx
-                        fin_y_max = z.y1
-                    break
-
-    # ── Construire les régions ──
-    regions: List[fitz.Rect] = []
-
-    if fin_col_idx is not None:
-        # Fin trouvée : encadrer col 0 → col fin_col_idx, dernier capé à fin_y_max
-        for col_idx in range(fin_col_idx + 1):
-            region = _region_dans_colonne(blocks, centres_cols[col_idx], y_haut=None)
-            if region is None:
-                continue
-            if col_idx == fin_col_idx:
-                # Dernière colonne : on coupe à fin_y_max
-                region = fitz.Rect(
-                    region.x0,
-                    region.y0,
-                    region.x1,
-                    min(fin_y_max + MARGE, region.y1),
-                )
-            regions.append(region)
-        return next_page, regions, False
-
-    # ── Cas 2 : pas de référence trouvée → fallback prudent ──
-    # On encadre uniquement le HAUT de la colonne 1 (max MAX_CONTINUATION_HEIGHT)
-    region = _region_dans_colonne(blocks, centres_cols[0], y_haut=None)
-    if region is None:
-        return next_page, [], False
-
-    # Limiter à MAX_CONTINUATION_HEIGHT depuis le haut
-    region = fitz.Rect(
-        region.x0,
-        region.y0,
-        region.x1,
-        min(region.y0 + MAX_CONTINUATION_HEIGHT, region.y1),
-    )
-    regions.append(region)
-
-    # Signaler éventuellement "continue encore" si la région touche le bas
-    continue_apres = region.y1 > page_height - SEUIL_BAS_PAGE
-    return next_page, regions, continue_apres
 
 
 # ─────────────────────────────────────────────────────────────

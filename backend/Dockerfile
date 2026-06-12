@@ -43,9 +43,9 @@ RUN pip install --no-cache-dir --default-timeout=300 -r /app/requirements.txt
 COPY backend/ /app/
 COPY ml/ /app/ml/
 COPY scraping/ /app/scraping/
-# Modeles ML : copies a /modeles/ (et non /app/modeles/) parce que
-# config.py calcule MODELES_DIR = BASE_DIR/../modeles = /modeles
-COPY modeles/ /modeles/
+# Modeles ML : chemin lu par config.py via la variable MODELS_DIR
+# (definie a /app/modeles dans docker-compose.yml)
+COPY modeles/ /app/modeles/
 
 # Bulletins officiels de demo (seed) : copies dans /app/uploads/
 # Docker va automatiquement les transferer dans le volume "uploads"
@@ -64,7 +64,7 @@ RUN mkdir -p /app/uploads /app/cache /app/state /app/storage
 
 # Utilisateur non-root (securite)
 RUN groupadd -r app && useradd -r -g app -d /app -s /sbin/nologin app \
-    && chown -R app:app /app /modeles
+    && chown -R app:app /app
 USER app
 
 # Port FastAPI
@@ -74,5 +74,7 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
     CMD curl -fsS http://localhost:8000/api/health || exit 1
 
-# Demarrage avec uvicorn (4 workers en production)
+# Demarrage avec uvicorn (2 workers).
+# Le scheduler de scraping est protege par un verrou fichier : un seul
+# worker le demarre (cf. main.py).
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]

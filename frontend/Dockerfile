@@ -9,9 +9,10 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Cache des dependances : on copie d'abord les manifestes
-COPY frontend/package.json ./
-RUN npm install --legacy-peer-deps
+# Cache des dependances : on copie d'abord les manifestes.
+# npm ci + package-lock.json = build reproductible (memes versions a chaque build).
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci --legacy-peer-deps
 
 # Puis le code et le build
 COPY frontend/ ./

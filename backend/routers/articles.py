@@ -24,10 +24,10 @@ def screenshot_entreprise(
     Renvoie un PNG de la page du BO où se trouve cette annonce,
     avec un rectangle rouge autour de l'annonce.
     """
-    article = db.query(ArticleEntreprise).get(article_id)
+    article = db.get(ArticleEntreprise, article_id)
     if not article:
         raise HTTPException(status_code=404, detail="Article introuvable")
-    bulletin = db.query(BulletinOfficiel).get(article.bulletin_id)
+    bulletin = db.get(BulletinOfficiel, article.bulletin_id)
     if not bulletin:
         raise HTTPException(status_code=404, detail="Bulletin introuvable")
 
@@ -56,10 +56,10 @@ def screenshot_mahakim(
     current_user: User = Depends(get_current_user),
 ):
     """Idem pour les annonces judiciaires (Section II)."""
-    article = db.query(ArticleMahakim).get(article_id)
+    article = db.get(ArticleMahakim, article_id)
     if not article:
         raise HTTPException(status_code=404, detail="Article introuvable")
-    bulletin = db.query(BulletinOfficiel).get(article.bulletin_id)
+    bulletin = db.get(BulletinOfficiel, article.bulletin_id)
     if not bulletin:
         raise HTTPException(status_code=404, detail="Bulletin introuvable")
 

@@ -2,7 +2,7 @@
 LegalEye — Stats Router (Dashboard)
 """
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, extract
 
 from database import get_db
-from models import BulletinOfficiel, ArticleEntreprise, ArticleMahakim, Tier, Alerte, User
+from models import BulletinOfficiel, ArticleEntreprise, ArticleMahakim, Tier, Alerte, User, utcnow
 from schemas import StatsResponse
 from routers.auth import get_current_user
 
@@ -29,7 +29,7 @@ def get_stats(
     current_user: User = Depends(get_current_user),
 ):
     # Borne temporelle optionnelle pour les KPI.
-    cutoff = datetime.utcnow() - timedelta(days=jours) if jours else None
+    cutoff = utcnow() - timedelta(days=jours) if jours else None
 
     def borne(query, model):
         """Applique le filtre de période sur created_at si demandé."""
@@ -57,16 +57,20 @@ def get_stats(
     )
     par_type = {t or "non_classé": c for t, c in par_type_rows}
 
-    # Alertes par mois (12 derniers mois)
+    # Alertes par mois (12 derniers mois glissants).
+    # Le filtre sur created_at garantit qu'on prend bien les mois RÉCENTS :
+    # un simple order_by + limit(12) renverrait les 12 PREMIERS mois de
+    # l'historique, pas les derniers.
+    cutoff_mois = utcnow() - timedelta(days=365)
     par_mois_rows = (
         db.query(
             extract("year", Alerte.created_at).label("annee"),
             extract("month", Alerte.created_at).label("mois"),
             func.count().label("total"),
         )
+        .filter(Alerte.created_at >= cutoff_mois)
         .group_by("annee", "mois")
         .order_by("annee", "mois")
-        .limit(12)
         .all()
     )
     par_mois = [

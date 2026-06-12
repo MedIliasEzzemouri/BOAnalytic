@@ -186,7 +186,9 @@ export default function Bulletins() {
 
   function load() {
     setLoading(true)
-    bulletinsApi.list()
+    // limit explicite : le backend tronque à 20 par défaut, ce qui cachait
+    // silencieusement les bulletins au-delà des 20 plus récents.
+    bulletinsApi.list({ limit: 500 })
       .then(setBulletins)
       .catch((err) => setError(errorMessage(err)))
       .finally(() => setLoading(false))

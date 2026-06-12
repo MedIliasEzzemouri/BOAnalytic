@@ -78,29 +78,58 @@ def importer_csv(
     """
     Importe une liste de partenaires depuis un CSV.
     Colonnes attendues : nom, type_tier (client/fournisseur), secteur, ville
+
+    Les doublons (même nom normalisé, déjà en base ou répété dans le
+    fichier) sont ignorés — un ré-import du même CSV est donc idempotent.
     """
-    content = file.file.read().decode("utf-8")
+    try:
+        content = file.file.read().decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise HTTPException(
+            status_code=400,
+            detail="Encodage invalide : le CSV doit être en UTF-8",
+        )
     reader = csv.DictReader(io.StringIO(content))
 
+    TYPES_VALIDES = ("client", "fournisseur")
+
+    # Noms déjà en base (pour dédupliquer)
+    existants = {t.nom_normalise for t in db.query(Tier.nom_normalise).all()}
+
     count = 0
+    skipped = 0
     for row in reader:
-        nom = row.get("nom", "").strip()
+        nom = (row.get("nom") or "").strip()
         if not nom:
             continue
 
+        nom_norm = normaliser(nom)
+        if not nom_norm or nom_norm in existants:
+            skipped += 1
+            continue
+
+        type_tier = (row.get("type_tier") or "client").strip().lower()
+        if type_tier not in TYPES_VALIDES:
+            type_tier = "client"
+
         tier = Tier(
             nom=nom,
-            nom_normalise=normaliser(nom),
-            type_tier=row.get("type_tier", "client").strip(),
-            secteur=row.get("secteur", "").strip() or None,
-            ville=row.get("ville", "").strip() or None,
-            rc_numero=row.get("rc_numero", "").strip() or None,
+            nom_normalise=nom_norm,
+            type_tier=type_tier,
+            secteur=(row.get("secteur") or "").strip() or None,
+            ville=(row.get("ville") or "").strip() or None,
+            rc_numero=(row.get("rc_numero") or "").strip() or None,
         )
         db.add(tier)
+        existants.add(nom_norm)
         count += 1
 
     db.commit()
-    return {"message": f"{count} partenaires importés"}
+    return {
+        "message": f"{count} partenaires importés, {skipped} doublons ignorés",
+        "imported": count,
+        "skipped": skipped,
+    }
 
 
 # ── DÉTAIL ──
@@ -110,7 +139,7 @@ def detail_tier(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    tier = db.query(Tier).get(tier_id)
+    tier = db.get(Tier, tier_id)
     if not tier:
         raise HTTPException(status_code=404, detail="Tier non trouvé")
     return tier
@@ -124,7 +153,7 @@ def modifier_tier(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    tier = db.query(Tier).get(tier_id)
+    tier = db.get(Tier, tier_id)
     if not tier:
         raise HTTPException(status_code=404, detail="Tier non trouvé")
 
@@ -154,7 +183,7 @@ def supprimer_tier(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    tier = db.query(Tier).get(tier_id)
+    tier = db.get(Tier, tier_id)
     if not tier:
         raise HTTPException(status_code=404, detail="Tier non trouvé")
     db.delete(tier)

@@ -18,12 +18,15 @@ Pipeline :
         → création alertes
 """
 
+import logging
 import os
 import re
 import sys
 import pickle
 from typing import List, Optional
 from sqlalchemy.orm import Session
+
+log = logging.getLogger("legaleye.pipeline")
 
 # ──────────────────────────────────────────────────────────────
 #  Rendre les modules ml/ importables depuis backend/
@@ -78,9 +81,9 @@ def charger_modeles():
             _classification_model = pickle.load(f)
         with open(TFIDF_VECTORIZER, "rb") as f:
             _tfidf_vectorizer = pickle.load(f)
-        print("  ✅ Modèle 1 (classification) chargé")
+        log.info("Modèle 1 (classification) chargé")
     else:
-        print(f"  ⚠️  Modèle 1 introuvable : {CLASSIFICATION_MODEL}")
+        log.warning("Modèle 1 introuvable : %s", CLASSIFICATION_MODEL)
 
     # ── Modèle 2 : NER ──
     if os.path.exists(NER_MODEL_PATH):
@@ -100,19 +103,19 @@ def charger_modeles():
 
             _ner_model.to(_ner_device)
             _ner_model.eval()
-            print(f"  ✅ Modèle 2 (NER) chargé (device : {_ner_device})")
+            log.info("Modèle 2 (NER) chargé (device : %s)", _ner_device)
         except ImportError as e:
-            print(f"  ⚠️  Modèle 2 non chargé (dépendance manquante : {e})")
+            log.warning("Modèle 2 non chargé (dépendance manquante : %s)", e)
         except Exception as e:
-            print(f"  ⚠️  Modèle 2 erreur de chargement : {e}")
+            log.warning("Modèle 2 erreur de chargement : %s", e)
     else:
-        print(f"  ⚠️  Modèle 2 introuvable : {NER_MODEL_PATH}")
+        log.warning("Modèle 2 introuvable : %s", NER_MODEL_PATH)
 
     # ── Modèle 3 : Similarité ──
     if charger_modele_similarite(SIMILARITE_MODEL):
-        print("  ✅ Modèle 3 (similarité RF) chargé")
+        log.info("Modèle 3 (similarité RF) chargé")
     else:
-        print(f"  ⚠️  Modèle 3 introuvable : {SIMILARITE_MODEL} — fallback rapidfuzz")
+        log.warning("Modèle 3 introuvable : %s — fallback rapidfuzz", SIMILARITE_MODEL)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -362,7 +365,7 @@ def traiter_bulletin(bulletin_id: int, db: Session):
     Pipeline : Extraction → Classification → NER → Traduction → Similarité → Alerte.
     Met à jour la BDD.
     """
-    bulletin = db.query(BulletinOfficiel).get(bulletin_id)
+    bulletin = db.get(BulletinOfficiel, bulletin_id)
     if not bulletin:
         return
 
@@ -390,7 +393,7 @@ def traiter_bulletin(bulletin_id: int, db: Session):
 
         # ─── 2. SECTION I (annonces légales) ─────────────────
         total_I = len(data["annonces_I"])
-        print(f"  ▶️  Section I : {total_I} annonces à traiter")
+        log.info("Section I : %d annonces à traiter", total_I)
         for i, item in enumerate(data["annonces_I"]):
             # Compat : nouveau format (texte, page) ou ancien (texte seul)
             if isinstance(item, tuple):
@@ -437,20 +440,18 @@ def traiter_bulletin(bulletin_id: int, db: Session):
                 elapsed = time.time() - t0
                 rate = (i + 1) / elapsed if elapsed > 0 else 0
                 eta = (total_I - i - 1) / rate if rate > 0 else 0
-                print(f"    [{i+1}/{total_I}] Section I — "
-                      f"{rate:.1f} ann/sec — alertes: {nb_alertes_total} — "
-                      f"ETA: {eta:.0f}s")
+                log.info("[%d/%d] Section I — %.1f ann/sec — alertes: %d — ETA: %.0fs",
+                         i + 1, total_I, rate, nb_alertes_total, eta)
             if (i + 1) % BATCH_SIZE == 0:
                 db.commit()
 
         # Commit après Section I
         db.commit()
-        print(f"  ✅ Section I terminée en {time.time()-t0:.1f}s "
-              f"({nb_alertes_total} alertes)")
+        log.info("Section I terminée en %.1fs (%d alertes)", time.time() - t0, nb_alertes_total)
 
         # ─── 3. SECTION II (annonces judiciaires) ────────────
         total_II = len(data["annonces_II"])
-        print(f"  ▶️  Section II : {total_II} annonces à traiter")
+        log.info("Section II : %d annonces à traiter", total_II)
         t1 = time.time()
         for i, item in enumerate(data["annonces_II"]):
             if isinstance(item, tuple):
@@ -490,14 +491,14 @@ def traiter_bulletin(bulletin_id: int, db: Session):
                     nb_alertes_total += 1
 
         db.commit()
-        print(f"  ✅ Section II terminée en {time.time()-t1:.1f}s")
+        log.info("Section II terminée en %.1fs", time.time() - t1)
 
         # ─── 4. TERMINÉ ──────────────────────────────────────
         bulletin.statut = "traite"
         db.commit()
         total_time = time.time() - t0
-        print(f"  🎉 Pipeline terminé en {total_time:.1f}s — "
-              f"{nb_alertes_total} alertes générées")
+        log.info("Pipeline terminé en %.1fs — %d alertes générées",
+                 total_time, nb_alertes_total)
 
     except Exception as e:
         # IMPORTANT : on rollback d'abord pour libérer les verrous MySQL.
@@ -505,12 +506,12 @@ def traiter_bulletin(bulletin_id: int, db: Session):
         # suivant timeout (cas typique : Lock wait timeout exceeded).
         db.rollback()
         try:
-            bulletin = db.query(BulletinOfficiel).get(bulletin_id)
+            bulletin = db.get(BulletinOfficiel, bulletin_id)
             if bulletin is not None:
                 bulletin.statut = "erreur"
                 bulletin.message_erreur = str(e)[:500]
                 db.commit()
-        except Exception as inner:
-            print(f"⚠️  Impossible de marquer le bulletin en erreur : {inner}")
+        except Exception:
+            log.exception("Impossible de marquer le bulletin %s en erreur", bulletin_id)
             db.rollback()
         raise

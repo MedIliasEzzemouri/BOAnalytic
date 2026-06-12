@@ -2,13 +2,19 @@
 LegalEye — Modèles SQLAlchemy (6 tables)
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import (
     Column, Integer, String, Text, Float, Boolean,
     Date, DateTime, Enum, ForeignKey, Index
 )
 from sqlalchemy.orm import relationship
 from database import Base
+
+
+def utcnow() -> datetime:
+    """UTC naïf (les colonnes DATETIME MySQL stockent sans timezone).
+    Remplace datetime.utcnow(), déprécié depuis Python 3.12."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class User(Base):
@@ -20,8 +26,8 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     role          = Column(String(50), nullable=False, default="viewer")
     actif         = Column(Boolean, nullable=False, default=True)
-    created_at    = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at    = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at    = Column(DateTime, nullable=False, default=utcnow)
+    updated_at    = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
     bulletins = relationship("BulletinOfficiel", back_populates="uploader")
 
@@ -40,8 +46,8 @@ class BulletinOfficiel(Base):
     statut                  = Column(Enum("en_attente", "en_cours", "traite", "erreur"), nullable=False, default="en_attente")
     message_erreur          = Column(Text, default=None)
     uploaded_by             = Column(Integer, ForeignKey("user.id", ondelete="SET NULL"), default=None)
-    created_at              = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at              = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at              = Column(DateTime, nullable=False, default=utcnow)
+    updated_at              = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
     uploader            = relationship("User", back_populates="bulletins")
     articles_entreprise = relationship("ArticleEntreprise", back_populates="bulletin", cascade="all, delete-orphan")
@@ -65,7 +71,7 @@ class ArticleEntreprise(Base):
     score_ner            = Column(Float, default=None)
     source_nom           = Column(Enum("ner", "sommaire", "regex"), default=None)
     page_bulletin        = Column(Integer, default=None)
-    created_at           = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at           = Column(DateTime, nullable=False, default=utcnow)
 
     bulletin = relationship("BulletinOfficiel", back_populates="articles_entreprise")
     alertes  = relationship("Alerte", back_populates="article_entreprise", cascade="all, delete-orphan")
@@ -82,7 +88,7 @@ class ArticleMahakim(Base):
     score_ner       = Column(Float, default=None)
     tribunal        = Column(String(200), default=None)
     page_bulletin   = Column(Integer, default=None)
-    created_at      = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at      = Column(DateTime, nullable=False, default=utcnow)
 
     bulletin = relationship("BulletinOfficiel", back_populates="articles_mahakim")
     alertes  = relationship("Alerte", back_populates="article_mahakim", cascade="all, delete-orphan")
@@ -99,8 +105,8 @@ class Tier(Base):
     ville          = Column(String(100), default=None)
     rc_numero      = Column(String(50), default=None)
     actif          = Column(Boolean, nullable=False, default=True)
-    created_at     = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at     = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at     = Column(DateTime, nullable=False, default=utcnow)
+    updated_at     = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
     alertes = relationship("Alerte", back_populates="tier", cascade="all, delete-orphan")
 
@@ -124,7 +130,7 @@ class Alerte(Base):
     statut                = Column(Enum("nouvelle", "vue", "traitee", "ignoree"), nullable=False, default="nouvelle")
     priorite              = Column(Enum("haute", "moyenne", "basse"), nullable=False, default="moyenne")
     commentaire           = Column(Text, default=None)
-    created_at            = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at            = Column(DateTime, nullable=False, default=utcnow)
     traitee_at            = Column(DateTime, default=None)
     traitee_par           = Column(Integer, ForeignKey("user.id", ondelete="SET NULL"), default=None)
 

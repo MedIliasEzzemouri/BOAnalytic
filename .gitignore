@@ -5,6 +5,7 @@ __pycache__/
 *.so
 .Python
 .venv/
+.venv-check/
 venv/
 env/
 
@@ -51,3 +52,4 @@ node_modules/
 build/
 .next/
 dist/
+*.tsbuildinfo
