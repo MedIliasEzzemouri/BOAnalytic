@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+
+# Distribution
+build/
+dist/
+*.egg-info/
+
+# Tests / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Données sensibles
+*.env
+.env
+!.env.example
+config_local.py
+
+# Uploads et données volumineuses
+backend/uploads/*.pdf
+data/*.csv
+!data/sample_*.csv
+
+# Modèles trop lourds (optionnel — Git LFS si besoin)
+# modeles/**/*.safetensors
+# modeles/**/*.pkl
+
+# Logs
+*.log
+logs/
+
+# Frontend
+node_modules/
+build/
+.next/
+dist/

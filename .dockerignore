@@ -1,0 +1,78 @@
+# ====================================================================
+#  Fichiers exclus du contexte Docker (gain de temps + image plus petite)
+# ====================================================================
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.egg-info
+.pytest_cache
+.coverage
+.mypy_cache
+.ruff_cache
+.venv
+venv
+env
+
+# Node
+node_modules
+npm-debug.log
+yarn-error.log
+.pnpm-store
+
+# IDE / OS
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+# Donnees / cache local
+backend/uploads/*
+backend/cache/*
+backend/storage/*
+!backend/uploads/.gitkeep
+!backend/cache/.gitkeep
+# IMPORTANT : seed_uploads/ contient les 3 bulletins de demo Plastima.
+# Il DOIT etre inclus dans l'image (pas d'exclusion ici).
+
+# Logs
+*.log
+logs/
+
+# Variables d'environnement (jamais dans l'image)
+.env
+.env.local
+.env.*.local
+
+# Documentation / rapport
+rapport/
+docs/
+*.pdf
+*.tex
+*.docx
+*.pptx
+*.xlsx
+
+# Tests
+tests/
+backend/test_*.py
+backend/debug_*.py
+
+# Build frontend (genere par Docker)
+frontend/dist/
+frontend/build/
+
+# Modeles ML volumineux deja copies via la couche modeles/
+# (rien a exclure ici)
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore

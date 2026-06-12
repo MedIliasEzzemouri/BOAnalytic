@@ -1,0 +1,53 @@
+# LegalEye Backend — Requirements
+# pip install -r requirements.txt
+#
+# Note importante :
+#   - torch est installe SEPAREMENT dans le Dockerfile (version CPU-only,
+#     sans CUDA, pour eviter de telecharger 3 Go de bibliotheques NVIDIA
+#     inutiles sur un environnement sans GPU)
+#   - transformers est epingle a une version 4.x (la 5.x change l'API)
+
+# Framework
+fastapi>=0.115.0,<0.120.0
+uvicorn>=0.30.0,<0.35.0
+
+# Base de données
+sqlalchemy>=2.0.35,<2.1.0
+pymysql>=1.1.1
+
+# Auth
+# bcrypt epingle <5.0 : passlib n'est pas encore compatible avec bcrypt 5.x
+# (ValueError: password cannot be longer than 72 bytes)
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+python-multipart>=0.0.9
+bcrypt>=4.0.0,<5.0.0
+
+# ML / NLP
+# scikit-learn épinglé : les .pkl du Modèle 3 (RandomForest) ont été
+# entraînés en 1.5.2 (le warning InconsistentVersionWarning le confirme).
+scikit-learn==1.5.2
+# torch installe dans le Dockerfile (CPU-only via --index-url)
+transformers>=4.46.0,<5.0.0
+rapidfuzz>=3.9.0,<4.0.0
+
+# PDF
+PyMuPDF>=1.24.0,<2.0.0
+
+# Traduction (pipeline arabe → français)
+deep-translator>=1.11.4
+
+# Utils
+pydantic>=2.9.0,<3.0.0
+email-validator>=2.0.0
+python-dotenv>=1.0.1
+
+# Scraping Bulletin Officiel
+requests>=2.31.0
+urllib3>=2.0.0
+apscheduler>=3.10.0       # scheduler hebdo (lundi 06h00 + jeudi 18h00)
+portalocker>=2.8.0        # verrou sur scraper_state.json (anti race-condition)
+
+# Export PDF (rapports d'activité)
+reportlab>=4.0.0
+Pillow>=10.0.0

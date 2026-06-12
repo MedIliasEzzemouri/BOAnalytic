@@ -1,0 +1,25 @@
+{
+  "accuracy": 0.9712,
+  "f1_macro": 0.9711,
+  "cv_mean": 0.9714,
+  "cv_std": 0.0051,
+  "n_train": 9600,
+  "n_test": 2400,
+  "n_features": 20000,
+  "classes": [
+    "cession",
+    "création",
+    "liquidation",
+    "modification"
+  ],
+  "hyperparametres": {
+    "analyzer": "char_wb",
+    "ngram_range": [
+      2,
+      4
+    ],
+    "max_features": 20000,
+    "C": 1.0,
+    "max_par_classe": 3000
+  }
+}

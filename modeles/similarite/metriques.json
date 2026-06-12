@@ -1,0 +1,33 @@
+{
+  "version": "v4",
+  "accuracy_test": 0.9884225759768451,
+  "f1_cv_mean": 0.9749803770448919,
+  "f1_cv_std": 0.004622408361608284,
+  "score_adversarial": "7/9",
+  "n_paires_total": 10362,
+  "n_paires_train": 8289,
+  "n_paires_test": 2073,
+  "n_partenaires_source": 685,
+  "n_paires_confusables_detectees": 1649,
+  "features": [
+    "levenshtein_ratio",
+    "token_sort_ratio",
+    "token_set_ratio",
+    "partial_ratio",
+    "diff_longueur",
+    "jaccard_mots",
+    "premier_mot_identique"
+  ],
+  "hyperparametres": {
+    "n_estimators": 500,
+    "max_depth": 15,
+    "min_samples_leaf": 2,
+    "class_weight": "balanced"
+  },
+  "nouveautes_v4": [
+    "detection_auto_paires_confusables",
+    "K_voisins_par_partenaire = 3",
+    "seuil_WRatio = 60",
+    "injection_des_2_sens_dans_dataset"
+  ]
+}

@@ -1,0 +1,114 @@
+# ====================================================================
+#  LegalEye - Orchestration Docker Compose
+#  Auteur : Marouan Rhazlani (Plastima - DUT IDIA)
+#
+#  Demarrage :
+#      cp .env.example .env       # editer les vraies valeurs
+#      docker compose up -d
+#
+#  Acces :
+#      http://localhost            (frontend + API via nginx)
+#      http://localhost:8000/docs  (Swagger backend direct)
+# ====================================================================
+
+services:
+
+  # ── Base de donnees MySQL ─────────────────────────────────────
+  db:
+    image: mysql:9.1
+    container_name: legaleye-db
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      TZ: ${TZ:-Africa/Casablanca}
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./database/init:/docker-entrypoint-initdb.d:ro   # seed importe au 1er demarrage
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - legaleye-net
+
+  # ── Backend FastAPI ──────────────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: legaleye-backend:latest
+    container_name: legaleye-backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Variables lues par backend/config.py
+      ENV: ${ENV:-production}
+      DEBUG: ${DEBUG:-false}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_HOST: ${DB_HOST:-db}
+      DB_PORT: ${DB_PORT:-3306}
+      DB_NAME: ${DB_NAME}
+      SECRET_KEY: ${SECRET_KEY}
+      ALGORITHM: ${ALGORITHM:-HS256}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost}
+      SEUIL_SIMILARITE: ${SEUIL_SIMILARITE:-0.80}
+      # Chemins Docker
+      UPLOAD_DIR: /app/uploads
+      STATE_FILE: /app/state/scraper_state.json
+      MODELS_DIR: /app/modeles
+      CACHE_DIR: /app/cache
+      # Scraping
+      SCRAPER_ENABLED: ${SCRAPER_ENABLED:-false}
+      SCRAPER_USER_AGENT: ${SCRAPER_USER_AGENT:-LegalEye/1.0}
+      SCRAPER_TIMEOUT: ${SCRAPER_TIMEOUT:-30}
+      CONTACT_EMAIL: ${CONTACT_EMAIL:-contact@plastima.ma}
+      MAX_ESSAIS_VIDES: ${MAX_ESSAIS_VIDES:-10}
+      DELAI_ENTRE_REQUETES: ${DELAI_ENTRE_REQUETES:-1.0}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      TZ: ${TZ:-Africa/Casablanca}
+    volumes:
+      - ./backend/uploads:/app/uploads  # PDF des bulletins — bind mount partage host/container
+      - cache:/app/cache             # screenshots generes
+      - state:/app/state             # scraper_state.json
+      - storage:/app/storage         # autres fichiers
+    expose:
+      - "8000"
+    networks:
+      - legaleye-net
+
+  # ── Frontend React + nginx ────────────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    image: legaleye-frontend:latest
+    container_name: legaleye-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+    networks:
+      - legaleye-net
+
+
+# ── Volumes persistants ────────────────────────────────────────
+volumes:
+  db_data:        # donnees MySQL
+  cache:          # captures d'ecran annotees
+  state:          # etat du scraper
+  storage:        # fichiers divers
+
+
+# ── Reseau interne ─────────────────────────────────────────────
+networks:
+  legaleye-net:
+    driver: bridge

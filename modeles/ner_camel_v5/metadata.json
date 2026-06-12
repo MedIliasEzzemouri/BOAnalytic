@@ -1,0 +1,20 @@
+{
+  "model": "CAMeL-Lab/bert-base-arabic-camelbert-msa-ner",
+  "labels": [
+    "O",
+    "B-NOM_ENT",
+    "I-NOM_ENT"
+  ],
+  "dataset_size": 3500,
+  "train_size": 3559,
+  "val_size": 525,
+  "class_weights": [
+    1.0,
+    20.0,
+    20.0
+  ],
+  "precision": 0.9407114624505929,
+  "recall": 0.9500998003992016,
+  "f1": 0.9453823237338629,
+  "method": "is_split_into_words=True + word_ids() + class_weights"
+}
