@@ -104,6 +104,11 @@ export const bulletinsApi = {
         '/api/bulletins/sync-uploads',
       )
       .then((r) => r.data),
+  /** Déclenche le cycle scraper complet (téléchargement sgg.gov.ma + import + pipeline). */
+  scanNouveaux: () =>
+    api
+      .post<{ message: string; dernier_numero_connu: number }>('/api/bulletins/scan-nouveaux')
+      .then((r) => r.data),
   articles: (id: number, params?: { limit?: number; offset?: number }) =>
     api
       .get<{ legales: ArticleEntreprise[]; judiciaires: ArticleMahakim[] }>(

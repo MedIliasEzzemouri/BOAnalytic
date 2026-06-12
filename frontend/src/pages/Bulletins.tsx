@@ -182,6 +182,7 @@ export default function Bulletins() {
   const [showImport, setShowImport] = useState(false)
   const [busy, setBusy] = useState<number | null>(null)
   const [syncing, setSyncing] = useState(false)
+  const [scanning, setScanning] = useState(false)
   const [syncMsg, setSyncMsg] = useState<string | null>(null)
 
   function load() {
@@ -237,6 +238,22 @@ export default function Bulletins() {
     }
   }
 
+  async function handleScan() {
+    setScanning(true)
+    setSyncMsg(null)
+    try {
+      const res = await bulletinsApi.scanNouveaux()
+      setSyncMsg(
+        `${res.message} — recherche depuis le n° ${res.dernier_numero_connu}. ` +
+        'Les nouveaux bulletins apparaîtront ici au fil du traitement (recharge la page).',
+      )
+    } catch (err) {
+      setSyncMsg(errorMessage(err))
+    } finally {
+      setScanning(false)
+    }
+  }
+
   async function handleDelete(id: number, numero: string) {
     if (!confirm(`Supprimer définitivement le bulletin n°${numero} ?`)) return
     setBusy(id)
@@ -274,6 +291,14 @@ export default function Bulletins() {
               </a>
               {isAdmin && (
                 <>
+                  <Button
+                    variant="outline"
+                    icon="cloud_download"
+                    loading={scanning}
+                    onClick={handleScan}
+                  >
+                    {scanning ? 'Scan…' : 'Scan nouveaux BO'}
+                  </Button>
                   <Button
                     variant="outline"
                     icon="sync"

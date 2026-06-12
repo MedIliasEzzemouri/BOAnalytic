@@ -427,25 +427,43 @@ def scraper_et_inserer(db_session, background_tasks=None):
         background_tasks: instance FastAPI BackgroundTasks. Si fourni,
             le pipeline tourne en arriere-plan (non bloquant).
     """
-    from sqlalchemy import func
     from models import BulletinOfficiel
     from services.pipeline import traiter_bulletin
 
-    dernier_row = db_session.query(func.max(BulletinOfficiel.numero)).scalar()
+    # Source de verite : le fichier d'etat du scraper (suit la numerotation
+    # BOAL ~5900). Le max(numero) en BDD est trompeur : un bulletin hors-serie
+    # telecharge manuellement (ex. edition generale 7296) ferait scanner la
+    # mauvaise plage de numeros pour toujours.
+    etat = charger_etat()
+    dernier_num = int(etat.get("dernier_numero") or 0)
 
-    if dernier_row:
-        dernier_num = int(dernier_row)
-    else:
-        etat = charger_etat()
-        dernier_num = etat["dernier_numero"]
-        if dernier_num == 0:
-            log.warning("Aucun dernier numero connu. Specifier avec --dernier")
-            return []
+    if dernier_num == 0:
+        # Fallback : plus grand numero NUMERIQUE present en BDD
+        nums = [
+            int(n[0])
+            for n in db_session.query(BulletinOfficiel.numero).all()
+            if str(n[0]).isdigit()
+        ]
+        dernier_num = max(nums) if nums else 0
+
+    if dernier_num == 0:
+        log.warning("Aucun dernier numero connu. Specifier avec --dernier")
+        return []
 
     nouveaux = telecharger_nouveaux(dernier_num)
 
     bulletins_crees = []
     for nouveau in nouveaux:
+        # Idempotence : ne pas re-inserer un numero deja en BDD
+        # (sinon IntegrityError sur la contrainte unique -> job mort).
+        numero_str = str(nouveau["numero"])
+        existe = db_session.query(BulletinOfficiel).filter(
+            BulletinOfficiel.numero == numero_str
+        ).first()
+        if existe:
+            log.info("Bulletin %s deja en BDD (id=%d) - skip", numero_str, existe.id)
+            continue
+
         # Extraire la date depuis le PDF (premiere page).
         # Fallback : date du jour si l'extraction echoue (la colonne est NOT NULL).
         date_pub = extraire_date_publication(Path(nouveau["fichier"]))

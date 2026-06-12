@@ -59,10 +59,15 @@ def _demarrer_scheduler_scraping(app: FastAPI):
     """
     Démarre APScheduler en BackgroundScheduler (non bloquant pour FastAPI).
     Deux jobs hebdo : lundi 06h00 et jeudi 18h00.
+
+    Le job fait le cycle COMPLET : téléchargement des nouveaux bulletins
+    + insertion en BDD + pipeline ML (via scraper_et_inserer). L'ancien
+    job ne faisait que télécharger les PDF — il fallait ensuite cliquer
+    "Sync uploads" à la main pour les voir dans l'application.
     """
     try:
         from apscheduler.schedulers.background import BackgroundScheduler
-        from scraper_bo import charger_etat, telecharger_nouveaux
+        from scraper_bo import scraper_et_inserer
     except ImportError as e:
         log.warning("Scheduler non démarré : %s", e)
         return
@@ -71,11 +76,15 @@ def _demarrer_scheduler_scraping(app: FastAPI):
 
     def job():
         log.info("=== Job de scraping programmé ===")
+        from database import SessionLocal
+        db = SessionLocal()
         try:
-            etat = charger_etat()
-            telecharger_nouveaux(etat["dernier_numero"])
+            crees = scraper_et_inserer(db)
+            log.info("Job scraping terminé : %d bulletin(s) importé(s)", len(crees))
         except Exception:
             log.exception("Erreur pendant le job de scraping")
+        finally:
+            db.close()
 
     scheduler.add_job(job, "cron", day_of_week="mon", hour=6, minute=0, id="bo_lundi")
     scheduler.add_job(job, "cron", day_of_week="thu", hour=18, minute=0, id="bo_jeudi")

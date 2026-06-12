@@ -383,6 +383,21 @@ def traiter_bulletin(bulletin_id: int, db: Session):
         bulletin.nb_annonces_legales = len(data["annonces_I"])
         bulletin.nb_annonces_judiciaires = len(data["annonces_II"])
 
+        # Aucune annonce = très probablement le mauvais type de document
+        # (ex. édition GÉNÉRALE du BO — lois et décrets — au lieu de
+        # l'édition annonces légales). On le signale au lieu d'afficher
+        # un "traité" trompeur avec 0 annonce.
+        if not data["annonces_I"] and not data["annonces_II"]:
+            bulletin.statut = "erreur"
+            bulletin.message_erreur = (
+                "Aucune annonce détectée dans ce PDF. Vérifie qu'il s'agit "
+                "bien de l'édition « annonces légales » du BO (numérotation "
+                "~5900), pas de l'édition générale (lois et décrets)."
+            )
+            db.commit()
+            log.warning("Bulletin %s : 0 annonce extraite — marqué en erreur", bulletin.numero)
+            return
+
         # Charger les tiers une seule fois
         tiers = db.query(Tier).filter(Tier.actif == True).all()
 

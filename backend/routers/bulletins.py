@@ -248,6 +248,46 @@ def download_par_numero(
     return bulletin
 
 
+# ── SCAN NOUVEAUX (admin) — cycle scraper complet à la demande ──
+def _scan_nouveaux_task():
+    """Télécharge les nouveaux BOAL depuis sgg.gov.ma, insère en BDD,
+    lance le pipeline. Même cycle que le job planifié (lundi/jeudi)."""
+    from database import SessionLocal
+    db = SessionLocal()
+    try:
+        scraper = _importer_scraper()
+        crees = scraper.scraper_et_inserer(db)
+        log.info("Scan manuel terminé : %d bulletin(s) importé(s)", len(crees))
+    except Exception:
+        log.exception("Erreur pendant le scan manuel des nouveaux bulletins")
+    finally:
+        db.close()
+
+
+@router.post("/scan-nouveaux")
+def scan_nouveaux(
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """
+    Déclenche immédiatement le cycle complet du scraper :
+    téléchargement des nouveaux bulletins (depuis le dernier numéro connu
+    du fichier d'état) + insertion BDD + pipeline ML, en arrière-plan.
+    """
+    try:
+        scraper = _importer_scraper()
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Module scraper introuvable : {e}")
+
+    etat = scraper.charger_etat()
+    background_tasks.add_task(_scan_nouveaux_task)
+    return {
+        "message": "Scan lancé en arrière-plan",
+        "dernier_numero_connu": etat.get("dernier_numero", 0),
+    }
+
+
 # ── SYNC UPLOADS (admin) — importe les PDF du dossier non encore en BDD ──
 
 # Noms acceptés : BOAL_5921.pdf (scraper) et BO_5907_2026-01-14.pdf (upload manuel)
