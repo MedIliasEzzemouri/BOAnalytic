@@ -69,12 +69,17 @@ log = logging.getLogger("scraper_bo")
 # ============================================================
 
 # Deux formats connus du site sgg.gov.ma
-# Ancien (bulletins ~5000-6000) : BOAL_{numero}.pdf
-# Nouveau (bulletins ~7000+)    : BO_{numero}_Ar.pdf
+# Edition annonces legales (~5900) : BOAL_{numero}.pdf
+# Edition generale (~7000+)        : BO_{numero}_Ar.pdf
 URL_PATTERNS = [
     ("https://www.sgg.gov.ma/BO/AR/3111/{annee}/BOAL_{numero}.pdf", "BOAL_{numero}.pdf"),
     ("https://www.sgg.gov.ma/BO/AR/3111/{annee}/BO_{numero}_Ar.pdf", "BO_{numero}_Ar.pdf"),
 ]
+
+# Plafond de bulletins importes par run de synchronisation : le pipeline ML
+# prend ~15-20 min par bulletin sur CPU — au-dela, la machine rame. Les
+# bulletins restants seront pris au run suivant (le state file suit).
+MAX_BULLETINS_PAR_SYNC = int(os.environ.get("MAX_BULLETINS_PAR_SYNC", "5"))
 
 # Chemins - configurables via variables d'environnement (utile en Docker)
 _DEFAULT_ROOT = Path(__file__).resolve().parent.parent
@@ -261,10 +266,15 @@ def telecharger_bulletin(
 def telecharger_nouveaux(
     dernier_connu: int,
     dossier: Optional[Path] = None,
+    max_bulletins: Optional[int] = None,
 ) -> list[dict]:
     """
-    Telecharge TOUS les bulletins depuis le dernier connu.
+    Telecharge les bulletins depuis le dernier connu.
     Gere le rattrapage apres une pause de publication.
+
+    Args:
+        max_bulletins: plafond de telechargements pour ce run (None = illimite).
+            Les suivants seront pris au prochain run (le state file suit).
     """
     log.info("Recherche des nouveaux bulletins depuis #%d", dernier_connu)
 
@@ -274,6 +284,11 @@ def telecharger_nouveaux(
     derniere_annee: Optional[int] = None
 
     while essais_vides < MAX_ESSAIS_VIDES:
+        if max_bulletins is not None and len(telecharges) >= max_bulletins:
+            log.info("Plafond de %d bulletin(s) atteint pour ce run — "
+                     "les suivants seront pris au prochain run", max_bulletins)
+            break
+
         result, annee = telecharger_bulletin(numero, dossier, derniere_annee)
 
         if result:
@@ -450,7 +465,7 @@ def scraper_et_inserer(db_session, background_tasks=None):
         log.warning("Aucun dernier numero connu. Specifier avec --dernier")
         return []
 
-    nouveaux = telecharger_nouveaux(dernier_num)
+    nouveaux = telecharger_nouveaux(dernier_num, max_bulletins=MAX_BULLETINS_PAR_SYNC)
 
     bulletins_crees = []
     for nouveau in nouveaux:
