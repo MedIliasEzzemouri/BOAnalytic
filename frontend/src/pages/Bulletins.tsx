@@ -456,7 +456,18 @@ export default function Bulletins() {
                       <td className="px-5 py-4 text-slate">{formatDate(b.created_at)}</td>
                       <td className="px-5 py-4 text-slate">{formatDate(b.date_publication)}</td>
                       <td className="px-5 py-4">
-                        <StatutBulletinBadge statut={b.statut} />
+                        {/* En cas d'erreur, le détail est affiché sous le badge
+                            (sinon l'utilisateur voit "Erreur" sans explication). */}
+                        <div className="flex flex-col gap-1">
+                          <span title={b.message_erreur ?? undefined}>
+                            <StatutBulletinBadge statut={b.statut} />
+                          </span>
+                          {b.statut === 'erreur' && b.message_erreur && (
+                            <span className="max-w-[340px] font-body-sm text-[11px] leading-snug text-red-700">
+                              {b.message_erreur}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-2">
