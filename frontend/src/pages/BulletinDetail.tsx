@@ -41,7 +41,7 @@ export default function BulletinDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const bulletinId = Number(id)
-  const { isAdmin } = useAuth()
+  const { canManageBulletins } = useAuth()
 
   const [bulletin, setBulletin] = useState<Bulletin | null>(null)
   const [rows, setRows] = useState<Row[]>([])
@@ -201,7 +201,7 @@ export default function BulletinDetail() {
           <div className="mb-4 flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 px-5 py-3 font-body-md text-amber-700">
             <Icon name="schedule" className="text-[20px]" />
             <span className="flex-1">Pipeline ML en attente — le traitement va démarrer automatiquement.</span>
-            {isAdmin && (
+            {canManageBulletins && (
               <button
                 type="button"
                 disabled={retraitBusy}
@@ -224,7 +224,7 @@ export default function BulletinDetail() {
           <div className="mb-4 flex items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 px-5 py-3 font-body-md text-blue-700">
             <Icon name="autorenew" className="animate-spin text-[20px]" />
             <span className="flex-1">Pipeline ML en cours de traitement — les annonces apparaîtront automatiquement.</span>
-            {isAdmin && (
+            {canManageBulletins && (
               <button
                 type="button"
                 disabled={retraitBusy}
@@ -247,7 +247,7 @@ export default function BulletinDetail() {
           <div className="mb-4 flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-5 py-3 font-body-md text-red-700">
             <Icon name="error" className="text-[20px]" />
             <span className="flex-1">Erreur de traitement ML.</span>
-            {isAdmin && (
+            {canManageBulletins && (
               <button
                 type="button"
                 disabled={retraitBusy}

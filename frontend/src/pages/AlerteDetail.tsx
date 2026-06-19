@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { alertesApi, errorMessage, fetchScreenshot } from '../api/client'
-import { useAuth } from '../auth/AuthContext'
 import type { Alerte } from '../types'
 import { ErrorBox, Spinner } from '../components/ui'
 import { PrioriteBadge, StatutAlerteBadge } from '../components/badges'
@@ -16,7 +15,6 @@ type ShotState = 'loading' | 'ok' | 'error' | 'none'
 export default function AlerteDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const { isAdmin } = useAuth()
   const alerteId = Number(id)
 
   const [alerte, setAlerte] = useState<Alerte | null>(null)
@@ -377,7 +375,7 @@ export default function AlerteDetail() {
                   Décision administrative
                 </h2>
               </div>
-              {isAdmin ? (
+              {(
                 <div className="flex flex-col gap-4 p-md">
                   <div className="flex flex-col gap-1">
                     <label
@@ -412,29 +410,6 @@ export default function AlerteDetail() {
                     >
                       Confirmer &amp; traiter
                     </Button>
-                  </div>
-                </div>
-              ) : (
-                /* Viewer : lecture seule — pas de décision possible */
-                <div className="flex flex-col gap-4 p-md">
-                  <div className="flex items-start gap-2 rounded border border-outline-variant bg-surface-container-low p-3">
-                    <Icon name="lock" className="mt-[2px] text-[18px] text-slate" />
-                    <span className="font-body-sm text-slate">
-                      La prise de décision (traiter / ignorer) est réservée aux
-                      administrateurs. Votre compte est en consultation seule.
-                    </span>
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <span className="font-label-caps text-label-caps text-slate">
-                      Notes d'analyse
-                    </span>
-                    <div className="min-h-[3rem] border border-outline-variant bg-limestone p-2 font-body-sm text-ink">
-                      {alerte.commentaire?.trim() ? (
-                        alerte.commentaire
-                      ) : (
-                        <span className="italic text-slate">Aucune note enregistrée.</span>
-                      )}
-                    </div>
                   </div>
                 </div>
               )}

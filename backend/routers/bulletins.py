@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import sys
+import threading
 from datetime import date, datetime
 from pathlib import Path
 from typing import List, Optional
@@ -18,11 +19,17 @@ from schemas import BulletinResponse, ArticleEntrepriseResponse, ArticleMahakimR
 from models import ArticleEntreprise, ArticleMahakim
 from services.pipeline import traiter_bulletin
 from config import UPLOAD_DIR
-from routers.auth import get_current_user, require_admin
+from routers.auth import (
+    get_current_user, require_admin,
+    require_bulletins_upload, require_bulletins_full,
+)
 
 log = logging.getLogger("legaleye.bulletins")
 
 router = APIRouter(prefix="/api/bulletins", tags=["Bulletins"])
+
+# One pipeline at a time per worker — prevents OOM when many bulletins are queued.
+_PIPELINE_SEM = threading.Semaphore(1)
 
 # Numéro de BO : chiffres uniquement (utilisé dans un nom de fichier —
 # tout autre caractère ouvrirait un path traversal).
@@ -79,7 +86,7 @@ def detail_bulletin(
     return bulletin
 
 
-# ── UPLOAD + TRAITEMENT (admin) ──
+# ── UPLOAD + TRAITEMENT (admin, responsable, operateur) ──
 @router.post("/upload", response_model=BulletinResponse)
 def upload_bulletin(
     background_tasks: BackgroundTasks,
@@ -87,7 +94,7 @@ def upload_bulletin(
     numero: str = Form(...),
     date_publication: date = Form(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_bulletins_upload),
 ):
     numero = _valider_numero(numero)
 
@@ -138,7 +145,8 @@ def upload_bulletin(
 
 
 def traiter_bulletin_task(bulletin_id: int):
-    """Tâche en arrière-plan pour traiter un bulletin."""
+    """Tâche en arrière-plan pour traiter un bulletin. Semaphore serialise les pipelines ML."""
+    _PIPELINE_SEM.acquire()
     from database import SessionLocal
     db = SessionLocal()
     try:
@@ -147,15 +155,16 @@ def traiter_bulletin_task(bulletin_id: int):
         log.exception("Erreur traitement bulletin %s", bulletin_id)
     finally:
         db.close()
+        _PIPELINE_SEM.release()
 
 
-# ── RELANCER LE TRAITEMENT (admin) ──
+# ── RELANCER LE TRAITEMENT (admin, responsable) ──
 @router.post("/{bulletin_id}/retraiter", response_model=BulletinResponse)
 def retraiter_bulletin(
     bulletin_id: int,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_bulletins_full),
 ):
     bulletin = db.get(BulletinOfficiel, bulletin_id)
     if not bulletin:
@@ -204,14 +213,14 @@ def articles_bulletin(
     }
 
 
-# ── TÉLÉCHARGER PAR NUMÉRO (admin) — download depuis sgg.gov.ma ──
+# ── TÉLÉCHARGER PAR NUMÉRO (admin, responsable, operateur) — download depuis sgg.gov.ma ──
 @router.post("/download-numero")
 def download_par_numero(
     background_tasks: BackgroundTasks,
     numero: int = Form(...),
     annee: Optional[int] = Form(None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_bulletins_upload),
 ):
     """Télécharge un bulletin depuis sgg.gov.ma et le traite."""
     str_numero = str(numero)
@@ -228,6 +237,20 @@ def download_par_numero(
     filepath, annee = scraper.telecharger_bulletin(numero, dossier=Path(UPLOAD_DIR), annee=annee)
     if filepath is None:
         raise HTTPException(status_code=404, detail=f"Bulletin {numero} introuvable sur sgg.gov.ma")
+
+    # Reject non-BOAL editions (lois/décrets) before they waste pipeline time.
+    if not Path(filepath).name.startswith("BOAL_"):
+        try:
+            Path(filepath).unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Le numéro {numero} correspond à l'édition générale du BO (lois et décrets). "
+                "Seule l'édition BOAL (annonces légales d'entreprises) est supportée."
+            ),
+        )
 
     date_pub = scraper.extraire_date_publication(filepath)
     if date_pub is None:
@@ -268,7 +291,7 @@ def _scan_nouveaux_task():
 def scan_nouveaux(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_bulletins_upload),
 ):
     """
     Déclenche immédiatement le cycle complet du scraper :
@@ -298,7 +321,7 @@ _SYNC_PDF_RE = re.compile(r"^BO(?:AL)?_(\d+)(?:_\d{4}-\d{2}-\d{2})?\.pdf$", re.I
 def sync_uploads(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_bulletins_upload),
 ):
     """
     Scanne UPLOAD_DIR pour les PDF de bulletins (BOAL_*.pdf ou BO_*.pdf)
@@ -360,12 +383,12 @@ def sync_uploads(
     }
 
 
-# ── SUPPRIMER UN BULLETIN (admin) ──
+# ── SUPPRIMER UN BULLETIN (admin, responsable) ──
 @router.delete("/{bulletin_id}")
 def supprimer_bulletin(
     bulletin_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_bulletins_full),
 ):
     bulletin = db.get(BulletinOfficiel, bulletin_id)
     if not bulletin:

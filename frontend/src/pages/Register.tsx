@@ -173,8 +173,8 @@ export default function Register() {
       <div className="mt-5 flex items-start gap-3 rounded border border-outline-variant bg-surface-container-low/80 p-3">
         <Icon name="info" className="mt-0.5 shrink-0 text-[20px] text-outline" />
         <p className="font-caption text-caption text-slate">
-          Tous les nouveaux comptes sont créés en mode <strong>viewer</strong>. Pour devenir
-          admin, demandez à un administrateur existant.
+          Tous les nouveaux comptes sont créés en rôle <strong>opérateur</strong>. Pour obtenir
+          plus de droits, demandez à un administrateur existant.
         </p>
       </div>
 

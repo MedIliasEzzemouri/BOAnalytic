@@ -8,6 +8,10 @@ interface AuthContextValue {
   user: AuthUser | null
   isAuthenticated: boolean
   isAdmin: boolean
+  /** admin + responsable : retraiter/supprimer bulletins, exporter rapports. */
+  canManageBulletins: boolean
+  /** admin + responsable : exporter les rapports PDF. */
+  canExport: boolean
   loading: boolean
   login: (email: string, password: string) => Promise<void>
   register: (nom: string, email: string, password: string) => Promise<void>
@@ -79,6 +83,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         isAuthenticated: !!user,
         isAdmin: user?.role === 'admin',
+        canManageBulletins: user?.role === 'admin' || user?.role === 'responsable',
+        canExport: user?.role === 'admin' || user?.role === 'responsable',
         loading,
         login,
         register,

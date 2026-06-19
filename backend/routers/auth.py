@@ -27,8 +27,15 @@ log = logging.getLogger("legaleye.auth")
 router = APIRouter(prefix="/api/auth", tags=["Auth"])
 bearer_scheme = HTTPBearer(auto_error=False)
 
-# Rôles valides — alignés sur l'ENUM MySQL `user.role` ('admin','viewer').
-VALID_ROLES = ("admin", "viewer")
+# Rôles valides (colonne `user.role`, String).
+#   admin       — contrôle total (utilisateurs, tiers, bulletins, alertes, exports)
+#   responsable — Responsable opérationnel : bulletins (upload + retraiter/supprimer),
+#                 alertes, exports. PAS de gestion utilisateurs ni tiers.
+#   operateur   — upload de bulletins + traitement des alertes ; lecture seule du reste.
+VALID_ROLES = ("admin", "responsable", "operateur")
+
+# Rôle par défaut d'un nouveau compte (le moins privilégié).
+DEFAULT_ROLE = "operateur"
 
 # bcrypt tronque silencieusement au-delà de 72 octets : on refuse explicitement.
 PASSWORD_MIN_LEN = 8
@@ -151,6 +158,21 @@ def get_current_user(
     return user
 
 
+def require_roles(*roles: str):
+    """Fabrique une dependency qui n'autorise que les rôles listés."""
+    autorises = set(roles)
+
+    def _guard(current_user: User = Depends(get_current_user)) -> User:
+        if current_user.role not in autorises:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Droits insuffisants pour cette action",
+            )
+        return current_user
+
+    return _guard
+
+
 def require_admin(current_user: User = Depends(get_current_user)) -> User:
     """Dependency : restreint l'accès aux admins."""
     if current_user.role != "admin":
@@ -159,6 +181,16 @@ def require_admin(current_user: User = Depends(get_current_user)) -> User:
             detail="Droits administrateur requis",
         )
     return current_user
+
+
+# Dépendances métier (composées sur require_roles) :
+#   - bulletins upload/scan/sync  → tous les rôles connectés
+#   - bulletins retraiter/supprimer → admin + responsable
+#   - exports rapports             → admin + responsable
+#   - alertes (traiter)            → tous les rôles connectés (= get_current_user)
+require_bulletins_upload = require_roles("admin", "responsable", "operateur")
+require_bulletins_full = require_roles("admin", "responsable")
+require_export = require_roles("admin", "responsable")
 
 
 # ══════════════════════════════════════════════════════════════
@@ -190,10 +222,10 @@ def login(data: LoginRequest, request: Request, db: Session = Depends(get_db)):
 @router.post("/register", response_model=TokenResponse)
 def register(data: RegisterRequest, db: Session = Depends(get_db)):
     """
-    Inscription publique : tout nouveau compte est créé en **viewer**.
-    Désactivée par défaut en production (ALLOW_REGISTRATION=false) :
-    les bulletins, alertes et partenaires sont des données internes,
-    un compte viewer suffit pour tout lire.
+    Inscription publique : tout nouveau compte est créé en **operateur**
+    (le rôle le moins privilégié). Désactivée par défaut en production
+    (ALLOW_REGISTRATION=false) : les bulletins, alertes et tiers sont des
+    données internes ; un admin promeut ensuite si besoin.
     """
     if not ALLOW_REGISTRATION:
         raise HTTPException(
@@ -207,12 +239,12 @@ def register(data: RegisterRequest, db: Session = Depends(get_db)):
     if existing:
         raise HTTPException(status_code=400, detail="Email déjà utilisé")
 
-    # Sécurité : on ignore data.role et on force "viewer".
+    # Sécurité : on ignore data.role et on force le rôle le moins privilégié.
     user = User(
         nom=data.nom,
         email=data.email,
         password_hash=hash_password(data.password),
-        role="viewer",
+        role=DEFAULT_ROLE,
     )
     db.add(user)
     db.commit()
@@ -269,9 +301,12 @@ def changer_role(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    """Promeut/rétrograde un utilisateur. Rôles valides : 'admin' ou 'viewer'."""
+    """Promeut/rétrograde un utilisateur. Rôles : admin | responsable | operateur."""
     if data.role not in VALID_ROLES:
-        raise HTTPException(status_code=400, detail="Role invalide (admin|viewer)")
+        raise HTTPException(
+            status_code=400,
+            detail="Role invalide (admin|responsable|operateur)",
+        )
 
     user = db.get(User, user_id)
     if user is None:
@@ -297,7 +332,10 @@ def creer_utilisateur(
 ):
     """Crée un utilisateur avec le rôle choisi (admin only)."""
     if data.role not in VALID_ROLES:
-        raise HTTPException(status_code=400, detail="Role invalide (admin|viewer)")
+        raise HTTPException(
+            status_code=400,
+            detail="Role invalide (admin|responsable|operateur)",
+        )
     valider_password(data.password)
     if db.query(User).filter(User.email == data.email).first():
         raise HTTPException(status_code=400, detail="Email déjà utilisé")

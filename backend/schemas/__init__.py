@@ -27,7 +27,7 @@ class RegisterRequest(BaseModel):
     nom: str
     email: EmailStr
     password: str
-    role: str = "viewer"
+    role: str = "operateur"  # ignoré côté serveur (forcé au rôle par défaut)
 
 
 class UserCreateRequest(BaseModel):
@@ -35,7 +35,7 @@ class UserCreateRequest(BaseModel):
     nom: str
     email: EmailStr
     password: str
-    role: str = "viewer"
+    role: str = "operateur"
 
 
 class UserUpdateRequest(BaseModel):

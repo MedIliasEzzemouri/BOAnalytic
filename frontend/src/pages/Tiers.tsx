@@ -1,9 +1,12 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { tiersApi, errorMessage } from '../api/client'
+import { useNavigate } from 'react-router-dom'
+import { tiersApi, alertesApi, errorMessage } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
-import type { Tier, TierCreate } from '../types'
+import type { Alerte, Tier, TierCreate } from '../types'
 import { ErrorBox, EmptyState } from '../components/ui'
 import { TableSkeleton } from '../components/Skeleton'
+import { PrioriteBadge, StatutAlerteBadge } from '../components/badges'
+import { formatDate, formatScore } from '../lib/format'
 import PageHeader from '../components/PageHeader'
 import Button from '../components/Button'
 import Modal from '../components/Modal'
@@ -146,6 +149,61 @@ function TierModal({
   )
 }
 
+function TierAlertesModal({ tier, onClose }: { tier: Tier; onClose: () => void }) {
+  const navigate = useNavigate()
+  const [alertes, setAlertes] = useState<Alerte[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    setLoading(true)
+    alertesApi
+      .list({ tier_id: tier.id })
+      .then(setAlertes)
+      .catch((err) => setError(errorMessage(err)))
+      .finally(() => setLoading(false))
+  }, [tier.id])
+
+  return (
+    <Modal title={`Alertes — ${tier.nom}`} onClose={onClose} size="max-w-2xl">
+      <div className="flex max-h-[70vh] flex-col gap-3 overflow-y-auto p-md">
+        {error && <ErrorBox message={error} />}
+        {loading ? (
+          <p className="font-body-md text-secondary">Chargement…</p>
+        ) : alertes.length === 0 ? (
+          <EmptyState
+            icon="notifications_off"
+            title="Aucune alerte"
+            hint={`Aucune alerte n'a été générée pour « ${tier.nom} ».`}
+          />
+        ) : (
+          alertes.map((a) => (
+            <button
+              key={a.id}
+              type="button"
+              onClick={() => navigate(`/alertes/${a.id}`)}
+              className="flex w-full flex-col gap-2 rounded border border-outline-variant bg-surface p-4 text-left transition-colors hover:bg-surface-container-high"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <span className="font-semibold text-ink">{a.nom_detecte}</span>
+                <div className="flex shrink-0 items-center gap-2">
+                  <PrioriteBadge priorite={a.priorite} />
+                  <StatutAlerteBadge statut={a.statut} />
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-caption text-caption text-secondary">
+                {a.type_annonce && <span className="capitalize">{a.type_annonce}</span>}
+                <span>Similarité {formatScore(a.score_similarite)}</span>
+                <span>{formatDate(a.created_at)}</span>
+              </div>
+            </button>
+          ))
+        )}
+      </div>
+    </Modal>
+  )
+}
+
 export default function Tiers() {
   const { isAdmin } = useAuth()
   const [tiers, setTiers] = useState<Tier[]>([])
@@ -157,6 +215,7 @@ export default function Tiers() {
     open: false,
     tier: null,
   })
+  const [alertesTier, setAlertesTier] = useState<Tier | null>(null)
 
   function load() {
     setLoading(true)
@@ -190,7 +249,7 @@ export default function Tiers() {
     <div className="fade-in p-gutter">
       <div className="mx-auto flex w-full max-w-container-max flex-col gap-6">
         <PageHeader
-          title="Partenaires"
+          title="Tiers"
           subtitle="Registre unifié des tiers soumis à la surveillance réglementaire."
           actions={
             isAdmin && (
@@ -278,7 +337,9 @@ export default function Tiers() {
                   {tiers.map((t) => (
                     <tr
                       key={t.id}
-                      className="border-b border-outline-variant transition-colors last:border-0 hover:bg-surface"
+                      onClick={() => setAlertesTier(t)}
+                      className="cursor-pointer border-b border-outline-variant transition-colors last:border-0 hover:bg-surface"
+                      title={`Voir les alertes de ${t.nom}`}
                     >
                       <td className="px-6 py-5 font-semibold">{t.nom}</td>
                       <td className="px-6 py-5 capitalize text-slate">{t.type_tier}</td>
@@ -304,7 +365,10 @@ export default function Tiers() {
                             <>
                               <button
                                 type="button"
-                                onClick={() => setModal({ open: true, tier: t })}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setModal({ open: true, tier: t })
+                                }}
                                 aria-label={`Modifier ${t.nom}`}
                                 className="flex h-10 w-10 items-center justify-center rounded transition-colors hover:bg-surface-container-high hover:text-primary"
                               >
@@ -312,7 +376,10 @@ export default function Tiers() {
                               </button>
                               <button
                                 type="button"
-                                onClick={() => handleDelete(t)}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleDelete(t)
+                                }}
                                 aria-label={`Archiver ${t.nom}`}
                                 className="flex h-10 w-10 items-center justify-center rounded transition-colors hover:bg-error-container hover:text-error"
                               >
@@ -349,6 +416,10 @@ export default function Tiers() {
             load()
           }}
         />
+      )}
+
+      {alertesTier && (
+        <TierAlertesModal tier={alertesTier} onClose={() => setAlertesTier(null)} />
       )}
     </div>
   )

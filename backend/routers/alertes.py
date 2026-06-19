@@ -90,9 +90,9 @@ def modifier_alerte(
     alerte_id: int,
     data: AlerteUpdate,
     db: Session = Depends(get_db),
-    # Prendre une décision sur une alerte est réservé aux administrateurs.
-    # Les viewers peuvent consulter et marquer comme vue, pas décider.
-    current_user: User = Depends(require_admin),
+    # Traiter une alerte (statut + commentaire) est ouvert à tous les rôles
+    # connectés : admin, responsable et operateur.
+    current_user: User = Depends(get_current_user),
 ):
     alerte = db.get(Alerte, alerte_id)
     if not alerte:

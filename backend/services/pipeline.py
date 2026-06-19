@@ -407,9 +407,9 @@ def traiter_bulletin(bulletin_id: int, db: Session):
         if not data["annonces_I"] and not data["annonces_II"]:
             bulletin.statut = "erreur"
             bulletin.message_erreur = (
-                "Aucune annonce détectée dans ce PDF. Vérifie qu'il s'agit "
-                "bien de l'édition « annonces légales » du BO (numérotation "
-                "~5900), pas de l'édition générale (lois et décrets)."
+                "Aucune annonce d'entreprise détectée dans ce PDF. "
+                "Ce bulletin ne semble pas contenir de Section I (annonces légales). "
+                "Vérifiez qu'il s'agit bien d'une édition BOAL."
             )
             db.commit()
             log.warning("Bulletin %s : 0 annonce extraite — marqué en erreur", bulletin.numero)

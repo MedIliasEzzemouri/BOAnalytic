@@ -23,11 +23,23 @@ function initials(nom: string): string {
 
 const ROLES: Array<{ value: string; label: string }> = [
   { value: 'admin', label: 'Administrateur' },
-  { value: 'viewer', label: 'Viewer' },
+  { value: 'responsable', label: 'Responsable opérationnel' },
+  { value: 'operateur', label: 'Opérateur' },
 ]
 
 function roleLabel(r: string) {
   return ROLES.find((x) => x.value === r)?.label ?? r
+}
+
+// Couleur du badge par rôle.
+const ROLE_BADGE: Record<string, { background: string; color: string }> = {
+  admin: { background: '#dbeafe', color: '#1d4ed8' },
+  responsable: { background: '#dcfce7', color: '#15803d' },
+  operateur: { background: '#f1f5f9', color: '#475569' },
+}
+
+function roleBadgeStyle(r: string) {
+  return ROLE_BADGE[r] ?? ROLE_BADGE.operateur
 }
 
 // ── Modal création ──────────────────────────────────────────────
@@ -35,7 +47,7 @@ function CreateUserModal({ onClose, onDone }: { onClose: () => void; onDone: (u:
   const [nom, setNom] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [role, setRole] = useState('viewer')
+  const [role, setRole] = useState('operateur')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -316,11 +328,7 @@ export default function Utilisateurs() {
                   <div className="flex items-center gap-2 border-b border-outline-variant pb-4">
                     <span
                       className="rounded px-2 py-0.5 text-[10px] font-bold uppercase"
-                      style={
-                        u.role === 'admin'
-                          ? { background: '#dbeafe', color: '#1d4ed8' }
-                          : { background: '#f1f5f9', color: '#475569' }
-                      }
+                      style={roleBadgeStyle(u.role)}
                     >
                       {roleLabel(u.role)}
                     </span>

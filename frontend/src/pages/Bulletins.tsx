@@ -172,7 +172,7 @@ function ImportModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
 }
 
 export default function Bulletins() {
-  const { isAdmin } = useAuth()
+  const { canManageBulletins } = useAuth()
   const navigate = useNavigate()
   const [bulletins, setBulletins] = useState<Bulletin[]>([])
   const [loading, setLoading] = useState(true)
@@ -298,21 +298,18 @@ export default function Bulletins() {
                 <Icon name="open_in_new" className="text-[18px]" />
                 Source officielle
               </a>
-              {isAdmin && (
-                <>
-                  <Button
-                    variant="outline"
-                    icon="sync"
-                    loading={syncing}
-                    onClick={handleSync}
-                  >
-                    {syncing ? 'Synchronisation…' : 'Synchroniser'}
-                  </Button>
-                  <Button variant="clay" icon="add" onClick={() => setShowImport(true)}>
-                    Nouveau bulletin
-                  </Button>
-                </>
-              )}
+              {/* Upload + scan : autorisés à tous les rôles connectés. */}
+              <Button
+                variant="outline"
+                icon="sync"
+                loading={syncing}
+                onClick={handleSync}
+              >
+                {syncing ? 'Synchronisation…' : 'Synchroniser'}
+              </Button>
+              <Button variant="clay" icon="add" onClick={() => setShowImport(true)}>
+                Nouveau bulletin
+              </Button>
             </>
           }
         />
@@ -479,7 +476,7 @@ export default function Bulletins() {
                             <Icon name="visibility" className="text-[14px]" />
                             Voir annonces
                           </button>
-                          {isAdmin && (
+                          {canManageBulletins && (
                             <>
                               <button
                                 type="button"

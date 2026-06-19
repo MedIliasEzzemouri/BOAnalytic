@@ -167,10 +167,10 @@ def _on_each_page(canvas_obj, doc):
     # Logo placeholder + nom à gauche
     canvas_obj.setFillColor(COULEUR_PRIMAIRE)
     canvas_obj.setFont("Helvetica-Bold", 9)
-    canvas_obj.drawString(2 * cm, A4[1] - 1.2 * cm, "LegalEye")
+    canvas_obj.drawString(2 * cm, A4[1] - 1.2 * cm, "BOAnalytic")
     canvas_obj.setFillColor(COULEUR_SECONDAIRE)
     canvas_obj.setFont("Helvetica", 8)
-    canvas_obj.drawString(2 * cm + 1.6 * cm, A4[1] - 1.2 * cm,
+    canvas_obj.drawString(2 * cm + 2.2 * cm, A4[1] - 1.2 * cm,
                           "Plastima · Veille juridique automatisée")
 
     # Date à droite

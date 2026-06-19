@@ -1,7 +1,7 @@
 // Types TypeScript LegalEye — alignés sur les schémas Pydantic du backend.
 
-// Aligné sur l'ENUM MySQL user.role — seuls ces deux rôles existent côté backend.
-export type Role = 'admin' | 'viewer'
+// Aligné sur les rôles backend (colonne user.role).
+export type Role = 'admin' | 'responsable' | 'operateur'
 
 export interface User {
   id: number

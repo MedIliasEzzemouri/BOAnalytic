@@ -24,7 +24,7 @@ class User(Base):
     nom           = Column(String(100), nullable=False)
     email         = Column(String(150), nullable=False, unique=True)
     password_hash = Column(String(255), nullable=False)
-    role          = Column(String(50), nullable=False, default="viewer")
+    role          = Column(String(50), nullable=False, default="operateur")
     actif         = Column(Boolean, nullable=False, default=True)
     created_at    = Column(DateTime, nullable=False, default=utcnow)
     updated_at    = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)

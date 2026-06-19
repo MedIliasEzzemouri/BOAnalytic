@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import User
-from routers.auth import get_current_user
+from routers.auth import require_export
 from services.export_pdf import generer_rapport_global
 
 log = logging.getLogger("legaleye.exports")
@@ -28,7 +28,7 @@ def rapport_global(
         None, description="Titre personnalisé (optionnel).",
     ),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_export),
 ):
     """
     Génère et renvoie un rapport PDF récapitulatif de l'activité
@@ -58,7 +58,7 @@ def rapport_global(
     if not pdf_bytes:
         raise HTTPException(status_code=500, detail="Rapport vide")
 
-    filename = f"LegalEye_rapport_{jours}j_{datetime.now():%Y%m%d_%H%M}.pdf"
+    filename = f"BOAnalytic_rapport_{jours}j_{datetime.now():%Y%m%d_%H%M}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { alertesApi, statsApi, exportsApi, errorMessage } from '../api/client'
+import { useAuth } from '../auth/AuthContext'
 import type { Alerte, Stats } from '../types'
 import { ErrorBox } from '../components/ui'
 import { Skeleton } from '../components/Skeleton'
@@ -125,6 +126,7 @@ function DashboardSkeleton() {
 }
 
 export default function Dashboard() {
+  const { canExport } = useAuth()
   const [stats, setStats] = useState<Stats | null>(null)
   const [priorites, setPriorites] = useState<Record<string, number>>({})
   const [topTiers, setTopTiers] = useState<Array<{ nom: string; nb_alertes: number }>>([])
@@ -228,14 +230,16 @@ export default function Dashboard() {
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <PeriodSelector value={periode} onChange={setPeriode} busy={statsLoading} />
-            <Button
-              variant="outline"
-              icon="picture_as_pdf"
-              loading={exporting}
-              onClick={handleExportPdf}
-            >
-              {exporting ? 'Génération…' : 'Télécharger le rapport PDF'}
-            </Button>
+            {canExport && (
+              <Button
+                variant="outline"
+                icon="picture_as_pdf"
+                loading={exporting}
+                onClick={handleExportPdf}
+              >
+                {exporting ? 'Génération…' : 'Télécharger le rapport PDF'}
+              </Button>
+            )}
           </div>
         </header>
 
