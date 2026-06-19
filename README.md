@@ -115,5 +115,5 @@ python main.py
 
 ## Auteur
 
-**Marouan Rhazlani** — Stagiaire DUT IDIA, Plastima Casablanca
+**Ezzemouri Mohamed Ilias** — Stagiaire DUT IDIA, Plastima Casablanca
 Référence du rapport antérieur : Fouad Anas (bac+5, 4 mois)
