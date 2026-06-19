@@ -1,6 +1,6 @@
-# LegalEye — Système de Veille Juridique Automatisée
+# BOAnalytic — Système de Veille Juridique Automatisée
 
-> Stage Plastima Casablanca · DUT IDIA · 2 mois
+> Stage Plastima Casablanca · 6 mois
 > Surveillance automatique des bulletins officiels marocains pour détecter les annonces juridiques (faillite, liquidation, cession, modification) concernant les partenaires commerciaux de Plastima.
 
 ---
@@ -26,7 +26,7 @@ sgg.gov.ma → Scraper → PDF → Pipeline ML → MySQL → Dashboard React
 ## Structure du projet
 
 ```
-veille juridique/
+BOAnalytic/
 ├── README.md                     ← ce fichier
 │
 ├── backend/                      Application FastAPI (API + ORM)
