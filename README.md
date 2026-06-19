@@ -7,7 +7,7 @@
 
 ## Vue d'ensemble
 
-LegalEye télécharge chaque semaine le Bulletin Officiel marocain (~759 pages, bilingue arabe/français), extrait les annonces, les classifie via 3 modèles ML, et alerte l'utilisateur si un partenaire de Plastima est concerné.
+BOAnalytic télécharge chaque semaine le Bulletin Officiel marocain (~759 pages, bilingue arabe/français), extrait les annonces, les classifie via 3 modèles ML, et alerte l'utilisateur si un partenaire de Plastima est concerné.
 
 ```
 sgg.gov.ma → Scraper → PDF → Pipeline ML → MySQL → Dashboard React
